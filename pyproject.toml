@@ -14,10 +14,22 @@ dependencies = [
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "mypy>=1.11",
+    "pandas-stubs>=2",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+explicit_package_bases = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "ollama.*"
+ignore_missing_imports = true
 
 [build-system]
 requires = ["setuptools>=68"]

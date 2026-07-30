@@ -9,12 +9,17 @@ follow it.
 
 from __future__ import annotations
 
+import logging
 import os
+from typing import Any
 
 import httpx
 import ollama
+from pydantic import ValidationError
 
 from aurapulse.schemas import ClassifiedAnalysis, ReviewAnalysis
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.1:8b"
@@ -57,6 +62,31 @@ class ClassificationError(RuntimeError):
     budget."""
 
 
+def _request_completion(
+    client: ollama.Client, model: str, host: str, text: str, response_schema: dict[str, Any]
+) -> ollama.ChatResponse:
+    """Send one chat request to Ollama, wrapping connection failures.
+
+    Raises:
+        ClassificationError: if the server is unreachable, the model
+            isn't pulled, or any other transport-level failure occurs.
+    """
+    try:
+        return client.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            format=response_schema,
+            options={"temperature": 0},
+        )
+    except Exception as exc:  # Ollama unreachable, model not pulled, etc.
+        raise ClassificationError(
+            f"could not get a response from Ollama at {host!r} with model {model!r}: {exc}"
+        ) from exc
+
+
 def classify_review(
     review_id: str,
     business_id: str,
@@ -78,10 +108,12 @@ def classify_review(
         host: Ollama server URL. Defaults to $OLLAMA_HOST, then
             "http://localhost:11434".
         max_retries: Extra attempts if the model's response doesn't
-            validate against the schema (e.g. malformed JSON). Does
-            NOT retry on connection failures — the server being
-            unreachable isn't something a retry with the same call
-            will fix, so that fails fast as a single ClassificationError.
+            validate against the schema (e.g. malformed JSON, or an
+            other_detail/aspect mismatch — see
+            ``AspectMention``). Does NOT retry on connection failures
+            — the server being unreachable isn't something a retry
+            with the same call will fix, so that fails fast as a
+            single ClassificationError.
 
     Returns:
         A validated ``ReviewAnalysis`` with ``review_id``/``business_id``
@@ -96,51 +128,31 @@ def classify_review(
     client = ollama.Client(host=resolved_host, timeout=_REQUEST_TIMEOUT)
     response_schema = ClassifiedAnalysis.model_json_schema()
 
-    try:
-        response = client.chat(
-            model=resolved_model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": text},
-            ],
-            format=response_schema,
-            options={"temperature": 0},
-        )
-    except Exception as exc:  # Ollama unreachable, model not pulled, etc.
-        raise ClassificationError(
-            f"could not get a response from Ollama at {resolved_host!r} "
-            f"with model {resolved_model!r}: {exc}"
-        ) from exc
-
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
+        response = _request_completion(client, resolved_model, resolved_host, text, response_schema)
         try:
             parsed = ClassifiedAnalysis.model_validate_json(response["message"]["content"])
-            return ReviewAnalysis(
-                review_id=review_id,
-                business_id=business_id,
-                **parsed.model_dump(),
-            )
-        except Exception as exc:  # invalid JSON, schema mismatch, etc.
+        except (ValidationError, KeyError, TypeError, ValueError) as exc:  # malformed/invalid JSON, schema mismatch
             last_error = exc
-            if attempt == max_retries:
-                break
-            try:
-                response = client.chat(
-                    model=resolved_model,
-                    messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user", "content": text},
-                    ],
-                    format=response_schema,
-                    options={"temperature": 0},
-                )
-            except Exception as retry_exc:
-                raise ClassificationError(
-                    f"could not get a response from Ollama at {resolved_host!r} "
-                    f"with model {resolved_model!r}: {retry_exc}"
-                ) from retry_exc
+            logger.warning(
+                "review_id=%s: attempt %d/%d returned schema-invalid output: %s",
+                review_id,
+                attempt + 1,
+                max_retries + 1,
+                exc,
+            )
+            continue
 
+        logger.debug("review_id=%s: classified successfully on attempt %d", review_id, attempt + 1)
+        return ReviewAnalysis(review_id=review_id, business_id=business_id, **parsed.model_dump())
+
+    logger.error(
+        "review_id=%s: model %r gave no schema-valid output after %d attempt(s)",
+        review_id,
+        resolved_model,
+        max_retries + 1,
+    )
     raise ClassificationError(
         f"model {resolved_model!r} did not return schema-valid output after "
         f"{max_retries + 1} attempt(s): {last_error}"

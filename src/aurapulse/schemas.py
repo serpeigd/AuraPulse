@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Sentiment(str, Enum):
@@ -55,6 +55,22 @@ class AspectMention(BaseModel):
             "Tracked in aggregation to spot when the enum needs a new category."
         ),
     )
+
+    @model_validator(mode="after")
+    def _other_detail_matches_aspect(self) -> AspectMention:
+        """Enforce the OTHER <-> other_detail pairing the docstring promises.
+
+        Schema-valid output from an LLM can still be logically
+        inconsistent (e.g. aspect=food with other_detail filled in, or
+        aspect=other with nothing to say) — catching that here means
+        callers never have to re-check it downstream.
+        """
+        if self.aspect == Aspect.OTHER:
+            if not self.other_detail or not self.other_detail.strip():
+                raise ValueError("other_detail is required when aspect is OTHER")
+        elif self.other_detail is not None:
+            raise ValueError(f"other_detail must be unset when aspect is {self.aspect.value!r}, not OTHER")
+        return self
 
 
 class ClassifiedAnalysis(BaseModel):
