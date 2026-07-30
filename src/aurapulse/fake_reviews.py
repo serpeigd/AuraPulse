@@ -151,23 +151,29 @@ def generate_fixed_dataset() -> list[FakeReview]:
             {Aspect.FOOD: Sentiment.POSITIVE, Aspect.WAIT_TIME: Sentiment.NEGATIVE},
             overall_sentiment=Sentiment.NEGATIVE,
         ),
+        # Mixed positive+negative aspects -> overall NEGATIVE: a real
+        # complaint drags the overall tone down even when something else
+        # was fine. Matches both typical Yelp star-rating behavior and
+        # what the local model does consistently on its own (see
+        # docs/DESIGN.md). NEUTRAL is reserved for genuinely lukewarm
+        # language (see fake-003), not for "one good, one bad".
         make_fake_review(
             "fake-005",
             "biz-beta",
             {Aspect.PRICE: Sentiment.POSITIVE, Aspect.CLEANLINESS: Sentiment.NEGATIVE},
-            overall_sentiment=Sentiment.NEUTRAL,
+            overall_sentiment=Sentiment.NEGATIVE,
         ),
         make_fake_review(
             "fake-006",
             "biz-gamma",
             {Aspect.WAIT_TIME: Sentiment.POSITIVE, Aspect.AMBIENCE: Sentiment.NEGATIVE},
-            overall_sentiment=Sentiment.NEUTRAL,
+            overall_sentiment=Sentiment.NEGATIVE,
         ),
         make_fake_review(
             "fake-007",
             "biz-gamma",
             {Aspect.SERVICE: Sentiment.NEUTRAL},
-            overall_sentiment=Sentiment.NEUTRAL,
+            overall_sentiment=Sentiment.NEGATIVE,
             include_other=True,
         ),
         make_fake_review(

@@ -64,3 +64,17 @@ def test_inconsistency_scenario_exists() -> None:
 def test_severity_flag_is_exercised() -> None:
     flags = {review.expected.severity_flag for review in generate_fixed_dataset()}
     assert flags == {True, False}
+
+
+def test_mixed_positive_and_negative_aspects_yield_negative_overall() -> None:
+    """A real complaint drags the overall tone down even alongside a positive.
+
+    Convention decided 2026-07-30 after comparing against the local
+    model's classification behavior — see docs/DESIGN.md. NEUTRAL is
+    reserved for genuinely lukewarm language (fake-003), not for
+    "one good aspect, one bad aspect".
+    """
+    for review in generate_fixed_dataset():
+        sentiments = {mention.sentiment for mention in review.expected.aspects}
+        if Sentiment.POSITIVE in sentiments and Sentiment.NEGATIVE in sentiments:
+            assert review.expected.overall_sentiment == Sentiment.NEGATIVE, review.expected.review_id

@@ -2,6 +2,22 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Ground truth convention: mixed positive+negative aspects → overall NEGATIVE
+
+Status: resolved (2026-07-30), informed by the first offline eval against `llama3.1:8b`.
+
+**Decision:** when a review mentions both a positive and a negative aspect, the fixture ground truth (`tests/test_fake_reviews.py` / `src/aurapulse/fake_reviews.py`) now expects `overall_sentiment = NEGATIVE`, not `NEUTRAL`. `NEUTRAL` is reserved for genuinely lukewarm/uncommitted language (e.g. "the food was fine, nothing special").
+
+**Why:** the first eval run (`scripts/eval_fake_reviews.py`) scored 62.5% sentiment accuracy (5/8), with all 3 misses on fixtures where I had originally encoded "mixed signals = neutral". A manual diff of expected vs. actual per review showed the model was *consistently* calling these NEGATIVE instead — not random noise. That matches how people actually rate on Yelp (one real complaint drags the star rating down even if something else was good), so the original "neutral" convention was arguably the wrong ground truth, not a model failure. Re-running after the convention change would be expected to raise sentiment accuracy without any further prompt changes — worth confirming when the eval is re-run.
+
+**Trade-off accepted:** this convention is a simplification (doesn't weigh *how* positive/negative each aspect is, just presence of both). Revisit if aggregation results downstream look wrong because of it.
+
+## Known gap: `severity_flag` is unreliable from the local model
+
+Status: acknowledged, not fixed — deferred, since `severity_flag` is explicitly unused by any Hito 0 logic.
+
+Across two eval runs, `severity_flag` accuracy sat at 50% (4/8) both times, but *which* 4 reviews it got right changed between runs — i.e. it's not a stable, learnable signal with the current prompt, it's closer to noise. This is fine to defer because escalation routing (the only consumer of this field) is out of scope until Hito 1/2, but flagging it now so it isn't mistaken for "done" — likely needs few-shot examples or a narrower prompt when severity/escalation work actually starts.
+
 ## Classification backend: local LLM via Ollama (no paid API keys)
 
 Status: resolved (2026-07-30).
