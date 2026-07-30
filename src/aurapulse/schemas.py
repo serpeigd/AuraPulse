@@ -57,8 +57,27 @@ class AspectMention(BaseModel):
     )
 
 
-class ReviewAnalysis(BaseModel):
-    """Structured analysis output for a single review.
+class ClassifiedAnalysis(BaseModel):
+    """LLM output for a single review — everything except identifiers.
+
+    ``review_id``/``business_id`` are known to the caller before
+    classification even runs, so they're deliberately excluded from
+    what we ask the model to produce (asking an LLM to echo back an
+    identifier it didn't generate just invites it to hallucinate one).
+    The classifier injects them after validating this against the
+    model's structured output.
+    """
+
+    overall_sentiment: Sentiment
+    aspects: list[AspectMention] = Field(default_factory=list)
+    severity_flag: bool = Field(
+        default=False,
+        description="Reserved for future escalation routing (Hito 1+). Unused in Hito 0.",
+    )
+
+
+class ReviewAnalysis(ClassifiedAnalysis):
+    """Structured analysis output for a single review, with identifiers.
 
     ``severity_flag`` is carried in the schema now (per CLAUDE.md — leave
     the door open for future escalation) but is NOT consumed by any
@@ -68,9 +87,3 @@ class ReviewAnalysis(BaseModel):
 
     review_id: str
     business_id: str
-    overall_sentiment: Sentiment
-    aspects: list[AspectMention] = Field(default_factory=list)
-    severity_flag: bool = Field(
-        default=False,
-        description="Reserved for future escalation routing (Hito 1+). Unused in Hito 0.",
-    )
