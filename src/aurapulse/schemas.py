@@ -64,9 +64,16 @@ class AspectMention(BaseModel):
         inconsistent (e.g. aspect=food with other_detail filled in, or
         aspect=other with nothing to say) — catching that here means
         callers never have to re-check it downstream.
+
+        Ollama's structured-output mode can't omit an optional string
+        field cleanly, so models routinely fill an unset
+        ``other_detail`` with ``""`` instead of JSON ``null`` — treat
+        blank as unset rather than rejecting otherwise-valid output.
         """
+        if self.other_detail is not None and not self.other_detail.strip():
+            self.other_detail = None
         if self.aspect == Aspect.OTHER:
-            if not self.other_detail or not self.other_detail.strip():
+            if not self.other_detail:
                 raise ValueError("other_detail is required when aspect is OTHER")
         elif self.other_detail is not None:
             raise ValueError(f"other_detail must be unset when aspect is {self.aspect.value!r}, not OTHER")

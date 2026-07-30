@@ -59,7 +59,7 @@ def main() -> int:
         print(f"  FAILED: {failure}")
 
     if evaluated == 0:
-        print("No reviews were successfully classified — nothing to score.")
+        print("No reviews were successfully classified - nothing to score.")
         return 1
 
     print(f"Overall sentiment accuracy: {sentiment_correct}/{evaluated} ({sentiment_correct / evaluated:.1%})")
