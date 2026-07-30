@@ -12,7 +12,7 @@ AuraPulse is positioned as a tool that surfaces *recurring operational inconsist
 
 Status: resolved (2026-07-30) — **hybrid**.
 
-**Decision:** closed enum (`food | service | price | cleanliness | wait_time | other`) plus an optional `other_detail: str | None` field, populated by the LLM only when `aspect == other`.
+**Decision:** closed enum (`food | service | price | cleanliness | wait_time | ambience | other`) plus an optional `other_detail: str | None` field, populated by the LLM only when `aspect == other`. `ambience` (comfort, noise, decor, atmosphere) was added after initial review as a distinct recurring driver of restaurant reviews that doesn't cleanly fit under `cleanliness` or `service`.
 
 **Why:**
 - A closed enum keeps aggregate reporting consistent (the whole point of "recurring aspects") and gives the classifier a bounded, evaluable task — precision/recall per class with a clear denominator.

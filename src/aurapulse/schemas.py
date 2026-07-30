@@ -1,0 +1,76 @@
+"""Pydantic schemas for structured LLM output in AuraPulse.
+
+Defines the contract the classification step must satisfy for every
+review: sentiment, one or more aspects (closed enum + escape hatch),
+and an optional severity flag reserved for future escalation routing
+(Hito 1+, not used in Hito 0 aggregation).
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+
+from pydantic import BaseModel, Field
+
+
+class Sentiment(str, Enum):
+    """Overall sentiment of a review, validated against the Yelp star rating."""
+
+    POSITIVE = "positive"
+    NEUTRAL = "neutral"
+    NEGATIVE = "negative"
+
+
+class Aspect(str, Enum):
+    """Closed set of recurring business aspects tracked for aggregation.
+
+    See docs/DESIGN.md for the enum-vs-free-text trade-off. ``OTHER`` is
+    the escape hatch for content that doesn't fit; see
+    ``AspectMention.other_detail``.
+    """
+
+    FOOD = "food"
+    SERVICE = "service"
+    PRICE = "price"
+    CLEANLINESS = "cleanliness"
+    WAIT_TIME = "wait_time"
+    AMBIENCE = "ambience"
+    OTHER = "other"
+
+
+class AspectMention(BaseModel):
+    """A single aspect surfaced in a review, with its own local sentiment.
+
+    A review can mention several aspects with different sentiment each
+    (e.g. food positive, wait_time negative) — this is what makes the
+    inconsistency-detection framing possible at aggregation time.
+    """
+
+    aspect: Aspect
+    sentiment: Sentiment
+    other_detail: str | None = Field(
+        default=None,
+        description=(
+            "Free-text detail, populated only when aspect == OTHER. "
+            "Tracked in aggregation to spot when the enum needs a new category."
+        ),
+    )
+
+
+class ReviewAnalysis(BaseModel):
+    """Structured analysis output for a single review.
+
+    ``severity_flag`` is carried in the schema now (per CLAUDE.md — leave
+    the door open for future escalation) but is NOT consumed by any
+    Hito 0 logic; escalation routing is explicitly out of scope until
+    Hito 1/2.
+    """
+
+    review_id: str
+    business_id: str
+    overall_sentiment: Sentiment
+    aspects: list[AspectMention] = Field(default_factory=list)
+    severity_flag: bool = Field(
+        default=False,
+        description="Reserved for future escalation routing (Hito 1+). Unused in Hito 0.",
+    )
