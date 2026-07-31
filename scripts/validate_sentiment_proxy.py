@@ -24,6 +24,7 @@ from typing import cast
 import pandas as pd
 
 from aurapulse.classifier import ClassificationError, classify_review
+from aurapulse.data_loader import select_stratified_review_sample
 from aurapulse.schemas import Sentiment
 
 REVIEW_SUBSET_PATH = Path("data/processed/review_subset.csv")
@@ -39,20 +40,6 @@ def stars_to_proxy_sentiment(stars: float) -> Sentiment:
     return Sentiment.POSITIVE
 
 
-def select_stratified_sample(reviews: pd.DataFrame, per_star: int) -> pd.DataFrame:
-    """Deterministically pick up to ``per_star`` reviews per star value.
-
-    Sorted by review_id within each star bucket (no randomness), so
-    the same subset always yields the same sample. If a bucket has
-    fewer than ``per_star`` reviews, every review in it is kept.
-    """
-    parts = [
-        group.sort_values("review_id").head(per_star)
-        for _, group in reviews.groupby("stars", sort=True)
-    ]
-    return pd.concat(parts, ignore_index=True)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -65,7 +52,7 @@ def main() -> int:
         return 1
 
     reviews = pd.read_csv(REVIEW_SUBSET_PATH)
-    sample = select_stratified_sample(reviews, args.per_star)
+    sample = select_stratified_review_sample(reviews, args.per_star)
     print(f"Sampled {len(sample)} reviews ({args.per_star} per star value, stars 1-5)")
 
     results = []

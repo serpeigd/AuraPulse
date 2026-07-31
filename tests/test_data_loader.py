@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from aurapulse.data_loader import (
@@ -17,6 +18,7 @@ from aurapulse.data_loader import (
     load_restaurant_businesses,
     load_reviews_for_businesses,
     select_business_subset,
+    select_stratified_review_sample,
 )
 
 
@@ -132,3 +134,30 @@ def test_load_reviews_for_businesses_filters_by_id(tmp_path: Path) -> None:
     reviews = load_reviews_for_businesses({"keep"}, raw_dir)
 
     assert {r["review_id"] for r in reviews} == {"1", "3"}
+
+
+def test_select_stratified_review_sample_caps_per_star() -> None:
+    reviews = pd.DataFrame(
+        [{"review_id": f"r{i}", "stars": stars} for stars in (1, 2, 3) for i in range(5)]
+    )
+
+    sample = select_stratified_review_sample(reviews, per_star=2)
+
+    assert len(sample) == 6
+    assert sample["stars"].value_counts().to_dict() == {1: 2, 2: 2, 3: 2}
+
+
+def test_select_stratified_review_sample_keeps_all_when_under_cap() -> None:
+    reviews = pd.DataFrame([{"review_id": f"r{i}", "stars": 4} for i in range(3)])
+
+    sample = select_stratified_review_sample(reviews, per_star=10)
+
+    assert len(sample) == 3
+
+
+def test_select_stratified_review_sample_is_deterministic_and_sorted() -> None:
+    reviews = pd.DataFrame([{"review_id": rid, "stars": 5} for rid in ["z", "a", "m"]])
+
+    sample = select_stratified_review_sample(reviews, per_star=10)
+
+    assert list(sample["review_id"]) == ["a", "m", "z"]

@@ -17,6 +17,8 @@ import logging
 from collections.abc import Iterator
 from pathlib import Path
 
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_RAW_DIR = Path("data/raw")
@@ -136,6 +138,24 @@ def select_business_subset(
         if total_reviews >= min_target and len(selected) >= 15:
             break
     return selected
+
+
+def select_stratified_review_sample(reviews: pd.DataFrame, per_star: int) -> pd.DataFrame:
+    """Deterministically pick up to ``per_star`` reviews per star value (1-5).
+
+    Sorted by ``review_id`` within each star bucket (no randomness), so
+    the same input always yields the same sample. If a bucket has
+    fewer than ``per_star`` reviews, every review in it is kept.
+
+    Used both to build a quality-check sample against the star-rating
+    proxy (`scripts/validate_sentiment_proxy.py`) and to build the
+    hand-labeling sheet for aspect ground truth
+    (`scripts/build_labeling_sheet.py`), which has no free proxy.
+    """
+    parts = [
+        group.sort_values("review_id").head(per_star) for _, group in reviews.groupby("stars", sort=True)
+    ]
+    return pd.concat(parts, ignore_index=True)
 
 
 def load_reviews_for_businesses(business_ids: set[str], raw_dir: Path = DEFAULT_RAW_DIR) -> list[dict]:
