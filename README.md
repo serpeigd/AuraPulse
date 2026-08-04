@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="AuraPulse logo" width="120" height="120">
+</p>
+
 # AuraPulse
 
 Detects recurring operational inconsistencies in restaurant reviews — e.g. food praised
