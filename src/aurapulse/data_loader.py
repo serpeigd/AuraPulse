@@ -19,11 +19,28 @@ from pathlib import Path
 
 import pandas as pd
 
+from aurapulse.schemas import Sentiment
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_RAW_DIR = Path("data/raw")
 BUSINESS_FILENAME = "yelp_academic_dataset_business.json"
 REVIEW_FILENAME = "yelp_academic_dataset_review.json"
+
+
+def stars_to_proxy_sentiment(stars: float) -> Sentiment:
+    """Map a Yelp star rating to the free proxy sentiment bucket from CLAUDE.md.
+
+    1-2 stars -> negative, 3 -> neutral, 4-5 -> positive. Used both to
+    validate the classifier (`scripts/validate_sentiment_proxy.py`) and
+    to report how model sentiment compares to the proxy per business
+    during aggregation.
+    """
+    if stars <= 2:
+        return Sentiment.NEGATIVE
+    if stars == 3:
+        return Sentiment.NEUTRAL
+    return Sentiment.POSITIVE
 
 
 class DatasetNotFoundError(FileNotFoundError):

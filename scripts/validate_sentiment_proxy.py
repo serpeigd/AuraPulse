@@ -24,20 +24,13 @@ from typing import cast
 import pandas as pd
 
 from aurapulse.classifier import ClassificationError, classify_review
-from aurapulse.data_loader import select_stratified_review_sample
-from aurapulse.schemas import Sentiment
+from aurapulse.data_loader import (
+    select_stratified_review_sample,
+    stars_to_proxy_sentiment,
+)
 
 REVIEW_SUBSET_PATH = Path("data/processed/review_subset.csv")
 OUTPUT_PATH = Path("data/processed/sentiment_proxy_sample.csv")
-
-
-def stars_to_proxy_sentiment(stars: float) -> Sentiment:
-    """Map a Yelp star rating to the proxy sentiment bucket from CLAUDE.md."""
-    if stars <= 2:
-        return Sentiment.NEGATIVE
-    if stars == 3:
-        return Sentiment.NEUTRAL
-    return Sentiment.POSITIVE
 
 
 def main() -> int:

@@ -19,7 +19,9 @@ from aurapulse.data_loader import (
     load_reviews_for_businesses,
     select_business_subset,
     select_stratified_review_sample,
+    stars_to_proxy_sentiment,
 )
+from aurapulse.schemas import Sentiment
 
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:
@@ -161,3 +163,17 @@ def test_select_stratified_review_sample_is_deterministic_and_sorted() -> None:
     sample = select_stratified_review_sample(reviews, per_star=10)
 
     assert list(sample["review_id"]) == ["a", "m", "z"]
+
+
+@pytest.mark.parametrize(
+    ("stars", "expected"),
+    [
+        (1, Sentiment.NEGATIVE),
+        (2, Sentiment.NEGATIVE),
+        (3, Sentiment.NEUTRAL),
+        (4, Sentiment.POSITIVE),
+        (5, Sentiment.POSITIVE),
+    ],
+)
+def test_stars_to_proxy_sentiment(stars: float, expected: Sentiment) -> None:
+    assert stars_to_proxy_sentiment(stars) == expected
