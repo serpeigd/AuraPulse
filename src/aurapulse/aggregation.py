@@ -40,6 +40,23 @@ class AspectSummary(BaseModel):
     negative_share: float = Field(description="negative_count / total_mentions; 0.0 if never mentioned.")
 
 
+class OtherAspectSummary(BaseModel):
+    """Dataset-wide read on how often the ``other`` escape hatch gets used.
+
+    Per docs/DESIGN.md: the volume of ``other`` is itself a metric —
+    a high rate signals the closed aspect enum needs a new category,
+    which is a project-wide call, not a per-business one. Kept
+    separate from ``BusinessReport`` for that reason.
+    """
+
+    total_mentions: int
+    other_mentions: int
+    other_share: float = Field(description="other_mentions / total_mentions; 0.0 if no aspects at all.")
+    other_details: list[str] = Field(
+        description="Every other_detail string collected, for manual review of what's falling through."
+    )
+
+
 class BusinessReport(BaseModel):
     """Aggregated reputation report for a single business."""
 
@@ -124,6 +141,36 @@ def build_business_report(business_id: str, analyses: list[ReviewAnalysis]) -> B
         sentiment_counts=sentiment_counts,
         aspect_summaries=aspect_summaries,
         inconsistent_aspects=_flag_inconsistencies(aspect_summaries),
+    )
+
+
+def summarize_other_aspect_usage(analyses: list[ReviewAnalysis]) -> OtherAspectSummary:
+    """Tally how often ``Aspect.OTHER`` shows up across an entire dataset.
+
+    Args:
+        analyses: Every classified review to summarize (typically the
+            whole subset, not one business — see class docstring).
+
+    Returns:
+        Total/other mention counts, their ratio, and every
+        ``other_detail`` string collected, for a human to skim and
+        decide whether the enum needs a new category.
+    """
+    total = 0
+    other_details: list[str] = []
+    for analysis in analyses:
+        for mention in analysis.aspects:
+            total += 1
+            if mention.aspect == Aspect.OTHER:
+                assert mention.other_detail is not None  # enforced by AspectMention's validator
+                other_details.append(mention.other_detail)
+
+    other_count = len(other_details)
+    return OtherAspectSummary(
+        total_mentions=total,
+        other_mentions=other_count,
+        other_share=other_count / total if total else 0.0,
+        other_details=other_details,
     )
 
 

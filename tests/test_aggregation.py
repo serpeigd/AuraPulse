@@ -9,7 +9,11 @@ MIN_MENTIONS_FOR_FLAG).
 
 from __future__ import annotations
 
-from aurapulse.aggregation import aggregate_reviews, build_business_report
+from aurapulse.aggregation import (
+    aggregate_reviews,
+    build_business_report,
+    summarize_other_aspect_usage,
+)
 from aurapulse.fake_reviews import generate_fixed_dataset
 from aurapulse.schemas import Aspect, AspectMention, ReviewAnalysis, Sentiment
 
@@ -134,3 +138,34 @@ def test_aggregate_reviews_runs_end_to_end_on_fake_dataset() -> None:
 
     assert {r.business_id for r in reports} == {"biz-alpha", "biz-beta", "biz-gamma"}
     assert sum(r.review_count for r in reports) == len(analyses)
+
+
+def test_summarize_other_aspect_usage_counts_and_collects_details() -> None:
+    # Built directly (not via _review()) because Aspect.OTHER requires a
+    # non-blank other_detail at construction time -- _review() doesn't take one.
+    review_with_other = ReviewAnalysis(
+        review_id="r1",
+        business_id="biz-1",
+        overall_sentiment=Sentiment.NEGATIVE,
+        aspects=[
+            AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.POSITIVE),
+            AspectMention(aspect=Aspect.OTHER, sentiment=Sentiment.NEGATIVE, other_detail="parking"),
+        ],
+    )
+    analyses = [review_with_other, _review("r2", "biz-1", {Aspect.SERVICE: Sentiment.NEGATIVE})]
+
+    summary = summarize_other_aspect_usage(analyses)
+
+    assert summary.total_mentions == 3
+    assert summary.other_mentions == 1
+    assert summary.other_share == 1 / 3
+    assert summary.other_details == ["parking"]
+
+
+def test_summarize_other_aspect_usage_handles_no_aspects() -> None:
+    summary = summarize_other_aspect_usage([])
+
+    assert summary.total_mentions == 0
+    assert summary.other_mentions == 0
+    assert summary.other_share == 0.0
+    assert summary.other_details == []
