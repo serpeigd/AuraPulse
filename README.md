@@ -29,10 +29,12 @@ raw Yelp reviews to an aggregated reputation/inconsistency report. Not complete 
   agreement against the free star-rating proxy on a stratified real-review sample
 - Hand-labeling tooling for aspect ground truth (aspect has no free proxy, unlike sentiment) —
   [`scripts/build_labeling_sheet.py`](scripts/build_labeling_sheet.py)
-- Aspect-extraction validated against 100 hand-labeled reviews and tuned with few-shot examples:
-  43% aspect-set exact match, 33% aspect+sentiment exact match (up from a 36%/24% baseline) — see
-  [`docs/DESIGN.md`](docs/DESIGN.md) for the full precision/recall breakdown and a known gap
-  (7% of reviews fail classification outright, deferred, not yet fixed)
+- Aspect-extraction validated against 100 hand-labeled reviews and tuned with few-shot examples +
+  output normalization: 44% aspect-set exact match, 34% aspect+sentiment exact match (up from a
+  36%/24% baseline), 0 classification failures — see [`docs/DESIGN.md`](docs/DESIGN.md) for the
+  full precision/recall breakdown and what didn't work along the way
+- Structured per-call classification tracing (latency, retries, outcome) —
+  [`src/aurapulse/classifier.py`](src/aurapulse/classifier.py)
 
 **Not done yet (explicitly out of scope until Hito 0 closes):**
 - Aggregation and reporting across a business's reviews
