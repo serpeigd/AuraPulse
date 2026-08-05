@@ -9,8 +9,10 @@ follow it.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
@@ -129,6 +131,73 @@ class ClassificationError(RuntimeError):
     budget."""
 
 
+def _emit_trace(
+    review_id: str,
+    model: str,
+    *,
+    attempts: int,
+    elapsed_ms: float,
+    outcome: str,
+    error: str | None = None,
+    other_detail_stripped: int = 0,
+) -> None:
+    """Emit one structured JSON trace line for a completed ``classify_review`` call.
+
+    Zero-cost, zero-new-dependency observability (see CLAUDE.md's no-paid-
+    services rule): every call emits exactly one line, machine-parseable
+    with ``grep '"event": "classification"' | jq``. No dashboard or
+    external service -- this is meant to make retry/latency/failure-rate
+    questions answerable from a log file, not to be a production APM.
+    Deliberately excludes review/business text and full error tracebacks
+    (only a short error string) to keep trace lines safe to keep around
+    without becoming a second copy of dataset content.
+    """
+    payload: dict[str, Any] = {
+        "event": "classification",
+        "review_id": review_id,
+        "model": model,
+        "attempts": attempts,
+        "elapsed_ms": round(elapsed_ms),
+        "outcome": outcome,
+    }
+    if error is not None:
+        payload["error"] = error
+    if other_detail_stripped:
+        payload["other_detail_stripped"] = other_detail_stripped
+    logger.info(json.dumps(payload))
+
+
+def _normalize_other_detail(raw: dict[str, Any], review_id: str) -> tuple[dict[str, Any], int]:
+    """Drop ``other_detail`` from any aspect mention that isn't OTHER.
+
+    The model occasionally attaches a clarifying note to a *named* aspect
+    (e.g. ``{"aspect": "price", "other_detail": "menu transparency"}``)
+    instead of leaving the field unset. ``AspectMention``'s validator
+    correctly rejects that shape (see ``src/aurapulse/schemas.py``), but
+    discarding the whole review over one extraneous string throws away an
+    aspect+sentiment call that's very likely still correct. A system-prompt
+    instruction explicitly forbidding this was tried and made the failure
+    rate *worse*, not better (see docs/DESIGN.md) — this is a deterministic,
+    zero-inference-cost fix instead: strip the stray field before
+    validating, keep everything else the model produced as-is.
+
+    Mutates and returns ``raw`` for convenience; also returns how many
+    mentions were stripped, so the caller can log/trace it.
+    """
+    stripped = 0
+    for mention in raw.get("aspects", []):
+        if mention.get("aspect") != Aspect.OTHER.value and mention.get("other_detail"):
+            mention["other_detail"] = None
+            stripped += 1
+    if stripped:
+        logger.warning(
+            "review_id=%s: stripped other_detail from %d aspect mention(s) that weren't OTHER",
+            review_id,
+            stripped,
+        )
+    return raw, stripped
+
+
 def _request_completion(
     client: ollama.Client, model: str, host: str, text: str, response_schema: dict[str, Any]
 ) -> ollama.ChatResponse:
@@ -162,6 +231,10 @@ def classify_review(
 ) -> ReviewAnalysis:
     """Classify a single review's sentiment and aspects via a local Ollama model.
 
+    Emits exactly one structured JSON trace line (via ``_emit_trace``) per
+    call at INFO level, regardless of outcome — see that function's
+    docstring for the log-based observability rationale.
+
     Args:
         review_id: Identifier to embed in the returned analysis (not
             sent to the model — see ``ClassifiedAnalysis``).
@@ -191,13 +264,28 @@ def classify_review(
     resolved_host = host or os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_HOST)
     client = ollama.Client(host=resolved_host, timeout=_REQUEST_TIMEOUT)
     response_schema = ClassifiedAnalysis.model_json_schema()
+    start = time.monotonic()
 
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
-        response = _request_completion(client, resolved_model, resolved_host, text, response_schema)
         try:
-            parsed = ClassifiedAnalysis.model_validate_json(response["message"]["content"])
-        except (ValidationError, KeyError, TypeError, ValueError) as exc:  # malformed/invalid JSON, schema mismatch
+            response = _request_completion(client, resolved_model, resolved_host, text, response_schema)
+        except ClassificationError as exc:
+            _emit_trace(
+                review_id,
+                resolved_model,
+                attempts=attempt + 1,
+                elapsed_ms=(time.monotonic() - start) * 1000,
+                outcome="connection_error",
+                error=str(exc),
+            )
+            raise
+        other_detail_stripped = 0
+        try:
+            raw = json.loads(response["message"]["content"])
+            raw, other_detail_stripped = _normalize_other_detail(raw, review_id)
+            parsed = ClassifiedAnalysis.model_validate(raw)
+        except (ValidationError, KeyError, TypeError, ValueError, AttributeError) as exc:  # malformed/invalid JSON, schema mismatch
             last_error = exc
             logger.warning(
                 "review_id=%s: attempt %d/%d returned schema-invalid output: %s",
@@ -209,6 +297,14 @@ def classify_review(
             continue
 
         logger.debug("review_id=%s: classified successfully on attempt %d", review_id, attempt + 1)
+        _emit_trace(
+            review_id,
+            resolved_model,
+            attempts=attempt + 1,
+            elapsed_ms=(time.monotonic() - start) * 1000,
+            outcome="success",
+            other_detail_stripped=other_detail_stripped,
+        )
         return ReviewAnalysis(review_id=review_id, business_id=business_id, **parsed.model_dump())
 
     logger.error(
@@ -216,6 +312,14 @@ def classify_review(
         review_id,
         resolved_model,
         max_retries + 1,
+    )
+    _emit_trace(
+        review_id,
+        resolved_model,
+        attempts=max_retries + 1,
+        elapsed_ms=(time.monotonic() - start) * 1000,
+        outcome="schema_invalid",
+        error=str(last_error),
     )
     raise ClassificationError(
         f"model {resolved_model!r} did not return schema-valid output after "

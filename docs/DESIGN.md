@@ -2,6 +2,74 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Fixing the `other_detail` failure mode: code-level normalization, not prompt engineering
+
+Status: resolved (2026-08-06).
+
+**Context:** the aspect-precision few-shot fix (see below) left a known gap — 7/100 reviews
+failing classification because the model attaches `other_detail` to a *named* aspect instead of
+leaving it unset, and `AspectMention`'s validator correctly rejects that shape. First attempt: add
+one more explicit system-prompt sentence forbidding it. Re-running the 100-review eval showed this
+made things *worse*, not better — 8/100 failures (up from 7) and lower match rates (40%/28% vs.
+43%/33% without the sentence). Four of the failing review IDs were identical across both runs,
+suggesting a real, content-driven tendency rather than pure inference noise, but the rest churned
+between runs — CPU-backed local inference isn't perfectly deterministic even at `temperature=0`.
+Conclusion: this model doesn't reliably follow one more prompt constraint layered on an already
+6-turn conversation, and spending a third ~40-minute eval run iterating blindly on more prompt text
+wasn't a good bet.
+
+**Decision:** stopped trying to prevent the shape via prompt and instead normalize it in code.
+`classify_review` now parses the model's raw JSON, strips `other_detail` from any aspect mention
+where `aspect != OTHER` (`_normalize_other_detail` in `src/aurapulse/classifier.py`), *then*
+validates — instead of validating the raw output and discarding the whole review on failure. The
+aspect and sentiment the model assigned (e.g. `price: neutral`) are very likely still correct; only
+the stray free-text note was ever the problem. `AspectMention`'s validator in
+`src/aurapulse/schemas.py` was deliberately left untouched and still strict — it's protecting a
+real invariant for any other caller of the schema, and the fix belongs at the LLM-output boundary,
+not in the shared data model. Every strip is logged and counted in the trace (see "Observability"
+below), so its frequency stays visible rather than silently absorbed.
+
+**Result:** re-ran the 100-review eval a third time. Failures dropped from 7 → **0/100**, and match
+rates improved further to **44%/34%** (up from 43%/33% with the failures still happening) — the
+previously-lost reviews turned out to classify correctly once given the chance. Zero added
+inference cost or latency, since it's a pure post-processing step on output already received.
+
+**Why this over loosening the schema's own validator:** the alternative — letting
+`AspectMention.other_detail` be set on any aspect — would remove a real correctness invariant for
+every producer of that model, not just this one LLM's known quirk. Confining the leniency to
+`classify_review`'s LLM-output handling keeps the schema's contract meaningful everywhere else
+(tests, any future non-LLM producer of `ReviewAnalysis`).
+
+## Observability: structured per-call trace log, not a dashboard
+
+Status: resolved (2026-08-05).
+
+**Decision:** `classify_review` now emits exactly one structured JSON log line per call, at INFO
+level, regardless of outcome (`_emit_trace` in `src/aurapulse/classifier.py`). Payload: `review_id`,
+`model`, `attempts`, `elapsed_ms`, `outcome` (`success` / `schema_invalid` / `connection_error`),
+and a short `error` string when the call failed. No review or business text is included, so trace
+lines are safe to keep around without becoming a second copy of dataset content.
+
+**Why now:** before this, the only way to answer "how often does classification fail, and how
+long does it take" was to read a live eval run's console output by hand (exactly what happened
+after fixing the aspect-precision issue above — the 7% `other_detail` failure rate was only
+noticed because I was staring at scrollback). That doesn't scale past a single manual eval run,
+and Hito 1's routing logic (positive → aggregation, negative w/o severity → draft, negative w/
+severity → escalation) is going to need exactly this kind of per-call signal to debug misrouting.
+
+**Why log lines, not a real APM/tracing backend:** the zero-cost constraint rules out any paid
+observability service. A local JSON-lines log is the free alternative that still answers the
+questions that matter here — `grep '"event": "classification"' data/logs/*.log | jq` gets
+failure rate, latency distribution, and retry counts without new infrastructure. Revisit this if
+Hito 1+ needs cross-call aggregation frequently enough that hand-grepping becomes the bottleneck —
+at that point a small script that folds the JSONL into a summary table would be the next step, not
+a hosted tracing service.
+
+**Trade-off accepted:** this is call-level tracing, not distributed tracing — no span/trace IDs
+linking a review's classification to its later routing decision (Hito 1+) or to the aggregation
+step that consumes it. Deliberately deferred: Hito 0 has no multi-step pipeline yet for spans to
+usefully connect, so building that now would be speculative. Revisit when Hito 1's routing exists.
+
 ## Aspect-extraction precision: few-shot examples to curb aspect over-prediction
 
 Status: resolved (2026-08-05) — with one known gap carried forward, see below.
@@ -33,17 +101,14 @@ to keep Yelp dataset content out of it. Baking real review text into a prompt st
 source code would defeat that. The two examples were written fresh, targeting the exact false-
 positive pattern found by hand-reviewing failing rows before writing them.
 
-**Trade-off accepted / known gap:** the longer 6-turn prompt introduced a failure mode absent from
-the baseline: 7/100 reviews (0% → 7%) now fail classification entirely after exhausting retries,
-all with the same validation error — the model attaching `other_detail` to a *named* aspect (e.g.
-`aspect=price, other_detail="menu transparency"`) instead of leaving it unset, which
-`AspectMention`'s validator correctly rejects (see `src/aurapulse/schemas.py`). Neither few-shot
-example models `other_detail` at all, so the root cause of this shift isn't understood yet. Net
-effect is still a quality improvement even counting those 7 as misses, but in production those 7
-reviews would silently drop out of a business's aggregate report rather than contributing a
-possibly-imperfect classification. Deferred rather than fixed now, so it isn't mistaken for
-"done" — the likely fix is one more explicit prompt sentence forbidding `other_detail` on named
-aspects, followed by a third eval run to confirm before it's considered closed.
+**Trade-off accepted / known gap — resolved 2026-08-06, see "Fixing the `other_detail` failure
+mode" below:** the longer 6-turn prompt introduced a failure mode absent from the baseline: 7/100
+reviews (0% → 7%) now failed classification entirely after exhausting retries, all with the same
+validation error — the model attaching `other_detail` to a *named* aspect (e.g. `aspect=price,
+other_detail="menu transparency"`) instead of leaving it unset, which `AspectMention`'s validator
+correctly rejects (see `src/aurapulse/schemas.py`). Net effect was still a quality improvement even
+counting those 7 as misses, but in production those 7 reviews would have silently dropped out of a
+business's aggregate report. Fixed at the code level rather than the prompt — see below.
 
 **Also worth reviewing before Hito 0 closes:** `other` usage in the ground-truth sample is 17% of
 reviews, and the classifier's `other` precision/recall (33.3%/7.1% after this change) is by far
