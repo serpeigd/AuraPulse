@@ -13,8 +13,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aurapulse.classifier import ClassificationError, classify_review
-from aurapulse.schemas import Aspect, Sentiment
+from aurapulse.classifier import (
+    _FEW_SHOT_EXAMPLES,
+    _SYSTEM_PROMPT,
+    ClassificationError,
+    _build_messages,
+    classify_review,
+)
+from aurapulse.schemas import Aspect, ClassifiedAnalysis, Sentiment
 
 
 def _valid_payload() -> str:
@@ -79,3 +85,56 @@ def test_classify_review_fails_fast_on_connection_error(mock_client_cls: MagicMo
         classify_review("r1", "b1", "Great food!", max_retries=2)
 
     mock_client.chat.assert_called_once()
+
+
+# --- Few-shot prompt construction (2026-08-05 aspect-precision fix, see docs/DESIGN.md) ---
+
+
+def test_few_shot_examples_are_schema_valid() -> None:
+    """Each few-shot answer must itself validate against ClassifiedAnalysis.
+
+    Guards against the few-shot examples silently drifting out of sync
+    with the schema they're meant to be teaching the model to follow.
+    """
+    for _, example_output in _FEW_SHOT_EXAMPLES:
+        # Round-trip through JSON, same path the model's real output takes.
+        ClassifiedAnalysis.model_validate_json(example_output.model_dump_json())
+
+
+def test_few_shot_examples_never_use_neutral_for_omitted_aspects() -> None:
+    """Regression guard for the exact failure mode the few-shot pairs target.
+
+    39/62 false positives in the 2026-08-05 aspect-proxy eval were
+    aspects tagged "neutral" that the review never discussed -- the
+    few-shot answers must not model that pattern themselves.
+    """
+    for _, example_output in _FEW_SHOT_EXAMPLES:
+        assert all(mention.sentiment != Sentiment.NEUTRAL for mention in example_output.aspects)
+
+
+def test_build_messages_structure() -> None:
+    """The real review must come last, after system + every few-shot pair, unmodified."""
+    messages = _build_messages("The tacos were fine, nothing special.")
+
+    assert messages[0] == {"role": "system", "content": _SYSTEM_PROMPT}
+
+    body = messages[1:-1]
+    assert len(body) == 2 * len(_FEW_SHOT_EXAMPLES)
+    for i, (example_text, example_output) in enumerate(_FEW_SHOT_EXAMPLES):
+        assert body[2 * i] == {"role": "user", "content": example_text}
+        assert body[2 * i + 1] == {"role": "assistant", "content": example_output.model_dump_json()}
+
+    assert messages[-1] == {"role": "user", "content": "The tacos were fine, nothing special."}
+
+
+@patch("aurapulse.classifier.ollama.Client")
+def test_classify_review_sends_few_shot_examples(mock_client_cls: MagicMock) -> None:
+    """End-to-end: classify_review must route through _build_messages, not a bare 2-turn prompt."""
+    mock_client = mock_client_cls.return_value
+    mock_client.chat.return_value = _chat_response(_valid_payload())
+
+    classify_review("r1", "b1", "Great food!")
+
+    sent_messages = mock_client.chat.call_args.kwargs["messages"]
+    assert len(sent_messages) == 2 + 2 * len(_FEW_SHOT_EXAMPLES)
+    assert sent_messages[-1]["content"] == "Great food!"
