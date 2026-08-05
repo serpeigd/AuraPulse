@@ -17,7 +17,13 @@ import httpx
 import ollama
 from pydantic import ValidationError
 
-from aurapulse.schemas import ClassifiedAnalysis, ReviewAnalysis
+from aurapulse.schemas import (
+    Aspect,
+    AspectMention,
+    ClassifiedAnalysis,
+    ReviewAnalysis,
+    Sentiment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +50,13 @@ Given a single customer review, extract:
   aspects with different sentiment each (e.g. food positive,
   wait_time negative) — capture all of them, don't collapse to one
   aspect, but never invent ones that aren't there.
+  "neutral" is a sentiment for an aspect the review actually discusses
+  in a lukewarm or mixed way — it is NEVER a placeholder for an aspect
+  the review doesn't discuss. If you're not sure whether an aspect is
+  really being evaluated, leave it out entirely rather than adding it
+  as neutral. A restaurant review not mentioning price, wait time, or
+  ambience at all should produce zero entries for those, even though
+  every restaurant technically has a price, a wait, and an ambience.
   Only use "other" when the content genuinely doesn't fit the other
   categories, and in that case fill other_detail with a short
   free-text label for what it actually is.
@@ -54,6 +67,60 @@ Given a single customer review, extract:
 
 Respond with nothing but the structured JSON described by the schema.
 """
+
+# Synthetic (not real Yelp text -- classifier.py ships in the public repo,
+# and data/processed/*.csv is gitignored precisely to keep dataset content
+# out of it, see docs/DESIGN.md) few-shot pairs demonstrating restraint.
+#
+# Both target the failure mode found in the 2026-08-05 aspect-proxy eval
+# (100 hand-labeled reviews, 36% aspect-set match / 24% aspect+sentiment
+# match): the model was adding aspects the review never discusses, almost
+# always tagged "neutral" -- 39 of 62 false-positive aspect predictions in
+# price/wait_time/ambience/other were "neutral" filler. See docs/DESIGN.md
+# for the full before/after writeup.
+_FEW_SHOT_EXAMPLES: list[tuple[str, ClassifiedAnalysis]] = [
+    (
+        (
+            "Best tacos in town, hands down. My friend and I split three plates and "
+            "could not stop talking about the salsa verde."
+        ),
+        ClassifiedAnalysis(
+            overall_sentiment=Sentiment.POSITIVE,
+            aspects=[AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.POSITIVE)],
+        ),
+    ),
+    (
+        (
+            "The pasta was outstanding, but our waiter forgot to bring water twice and "
+            "never checked back on us. Everything else about the visit was unremarkable."
+        ),
+        ClassifiedAnalysis(
+            # Mixed positive+negative aspects -> overall NEGATIVE, per the
+            # ground-truth convention in docs/DESIGN.md -- kept consistent
+            # here so the few-shot answer doesn't contradict eval labels.
+            overall_sentiment=Sentiment.NEGATIVE,
+            aspects=[
+                AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.POSITIVE),
+                AspectMention(aspect=Aspect.SERVICE, sentiment=Sentiment.NEGATIVE),
+            ],
+        ),
+    ),
+]
+
+
+def _build_messages(text: str) -> list[dict[str, str]]:
+    """Assemble the chat turns sent to Ollama: system prompt, few-shot pairs, then the review.
+
+    Kept as its own function (rather than inlined in
+    ``_request_completion``) so tests can assert on the few-shot content
+    without mocking a live chat call.
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    for example_text, example_output in _FEW_SHOT_EXAMPLES:
+        messages.append({"role": "user", "content": example_text})
+        messages.append({"role": "assistant", "content": example_output.model_dump_json()})
+    messages.append({"role": "user", "content": text})
+    return messages
 
 
 class ClassificationError(RuntimeError):
@@ -74,10 +141,7 @@ def _request_completion(
     try:
         return client.chat(
             model=model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": text},
-            ],
+            messages=_build_messages(text),
             format=response_schema,
             options={"temperature": 0},
         )

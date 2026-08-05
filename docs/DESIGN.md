@@ -2,6 +2,55 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Aspect-extraction precision: few-shot examples to curb aspect over-prediction
+
+Status: resolved (2026-08-05) — with one known gap carried forward, see below.
+
+**Context:** `scripts/validate_aspect_proxy.py` (the `aspect` analog of `validate_sentiment_proxy.py`)
+ran the classifier against the 100-review hand-labeled ground truth for the first time. Baseline
+(2-turn system+user prompt, no few-shot): aspect-set exact match 36/100 (36%), aspect+sentiment
+exact match 24/100 (24%) — well below the sentiment-proxy eval's quality bar. Per-aspect
+precision/recall showed the failure was concentrated in false positives, not missed aspects:
+`price` (54.3% precision, 92.6% recall), `wait_time` (50.0%/78.6%), `ambience` (50.0%/88.9%) — the
+model was tagging aspects the review never discussed. Of the 62 such false positives across those
+three categories, 39 (63%) were sentiment `neutral` — the model was using "neutral" as a
+just-in-case filler rather than reserving it for aspects genuinely discussed in a lukewarm way.
+
+**Decision:** added an explicit system-prompt clarification ("neutral is never a placeholder for
+an aspect the review doesn't discuss") plus two synthetic few-shot user/assistant example pairs to
+`_build_messages` in `src/aurapulse/classifier.py`, both modeling restraint — a review that only
+discusses 1-2 aspects gets exactly that many entries, nothing padded in as neutral filler.
+Re-running the same 100-review eval: aspect-set match 43/100 (43%, +7pts), aspect+sentiment match
+33/100 (33%, +9pts) — counting every classification failure as a miss, denominator stays 100 per
+the project's no-metric-without-denominator rule. Precision improved in every targeted category
+(`price` 54.3%→71.0%, `wait_time` 50.0%→70.0%, `ambience` 50.0%→71.9%) at some recall cost, a
+reasonable trade for a scoring method that penalizes both false positives and false negatives
+equally.
+
+**Why synthetic few-shot examples, not real Yelp text:** `classifier.py` ships in the public
+GitHub repo, and `data/processed/*.csv` (which holds real review text) is gitignored specifically
+to keep Yelp dataset content out of it. Baking real review text into a prompt string in committed
+source code would defeat that. The two examples were written fresh, targeting the exact false-
+positive pattern found by hand-reviewing failing rows before writing them.
+
+**Trade-off accepted / known gap:** the longer 6-turn prompt introduced a failure mode absent from
+the baseline: 7/100 reviews (0% → 7%) now fail classification entirely after exhausting retries,
+all with the same validation error — the model attaching `other_detail` to a *named* aspect (e.g.
+`aspect=price, other_detail="menu transparency"`) instead of leaving it unset, which
+`AspectMention`'s validator correctly rejects (see `src/aurapulse/schemas.py`). Neither few-shot
+example models `other_detail` at all, so the root cause of this shift isn't understood yet. Net
+effect is still a quality improvement even counting those 7 as misses, but in production those 7
+reviews would silently drop out of a business's aggregate report rather than contributing a
+possibly-imperfect classification. Deferred rather than fixed now, so it isn't mistaken for
+"done" — the likely fix is one more explicit prompt sentence forbidding `other_detail` on named
+aspects, followed by a third eval run to confirm before it's considered closed.
+
+**Also worth reviewing before Hito 0 closes:** `other` usage in the ground-truth sample is 17% of
+reviews, and the classifier's `other` precision/recall (33.3%/7.1% after this change) is by far
+the worst of any category — per the enum decision's own escape-hatch logic (see "aspect field"
+decision below), that combination is the signal for revisiting whether the enum needs a new
+category. Not investigated yet.
+
 ## Ground truth convention: mixed positive+negative aspects → overall NEGATIVE
 
 Status: resolved (2026-07-30), informed by the first offline eval against `llama3.1:8b`.

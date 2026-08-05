@@ -29,6 +29,10 @@ raw Yelp reviews to an aggregated reputation/inconsistency report. Not complete 
   agreement against the free star-rating proxy on a stratified real-review sample
 - Hand-labeling tooling for aspect ground truth (aspect has no free proxy, unlike sentiment) —
   [`scripts/build_labeling_sheet.py`](scripts/build_labeling_sheet.py)
+- Aspect-extraction validated against 100 hand-labeled reviews and tuned with few-shot examples:
+  43% aspect-set exact match, 33% aspect+sentiment exact match (up from a 36%/24% baseline) — see
+  [`docs/DESIGN.md`](docs/DESIGN.md) for the full precision/recall breakdown and a known gap
+  (7% of reviews fail classification outright, deferred, not yet fixed)
 
 **Not done yet (explicitly out of scope until Hito 0 closes):**
 - Aggregation and reporting across a business's reviews
@@ -75,6 +79,7 @@ python scripts/build_subset.py              # filter Yelp for restaurants, build
 python scripts/eval_fake_reviews.py         # offline eval against deterministic ground truth
 python scripts/validate_sentiment_proxy.py  # validate real reviews against the star-rating proxy
 python scripts/build_labeling_sheet.py      # generate the aspect hand-labeling spreadsheet
+python scripts/validate_aspect_proxy.py     # validate aspect extraction against hand-labeled ground truth
 ```
 
 ## Tests and checks
