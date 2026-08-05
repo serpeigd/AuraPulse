@@ -42,7 +42,8 @@ Rigor de ingeniería (bloqueante para merge, sin excepciones)
 Flujo Git
 
 * Rama nueva siempre: `feature/nombre-cambio`. Nunca commits directos en `main`.
-* Al terminar una tarea: propones commit (mensaje en inglés, convencional) y PR con descripción clara. Yo apruebo el merge, no lo hagas tú.
+* Al terminar una tarea: propones commit (mensaje en inglés, convencional) y PR con descripción clara.
+* Merge (actualizado 2026-08-05, decisión explícita mía en chat): mergeas tú mismo la PR a `main`, pero **solo si el CI (pytest, ruff, mypy) está en verde**. Si algún check falla, no mergeas — me avisas con el motivo y esperas instrucción. No hagas squash/force-push de historia ya mergeada sin pedírmelo.
 
 docs/DESIGN.md
 Crea este archivo en el primer commit y documenta ahí cada decisión arquitectónica con su trade-off, igual que en Pre-Show Reels. Como mínimo debe registrar: la decisión del schema de `aspect`, y la decisión de framework de orquestación cuando se tome.
