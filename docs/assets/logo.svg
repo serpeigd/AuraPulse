@@ -1,0 +1,15 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AuraPulse logo">
+  <title>AuraPulse</title>
+  <rect x="2" y="2" width="196" height="196" rx="42" fill="#ffffff"/>
+  <!-- speech-bubble outline, tail bottom-left -->
+  <path d="M100 34
+           a66 66 0 1 1 -46.5 112.5
+           l-15 24
+           l3.5 -27.5
+           a66 66 0 0 1 58 -109"
+        fill="none" stroke="#141a2e" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- ascending bars: negative / neutral / positive sentiment -->
+  <rect x="76"  y="112" width="17" height="36" rx="8.5" fill="#d0473a"/>
+  <rect x="99"  y="90"  width="17" height="58" rx="8.5" fill="#8b8f96"/>
+  <rect x="122" y="66"  width="17" height="82" rx="8.5" fill="#3c8a4c"/>
+</svg>
