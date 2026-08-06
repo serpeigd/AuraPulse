@@ -2,8 +2,9 @@
 
 Defines the contract the classification step must satisfy for every
 review: sentiment, one or more aspects (closed enum + escape hatch),
-and an optional severity flag reserved for future escalation routing
-(Hito 1+, not used in Hito 0 aggregation).
+and a severity flag now consumed by Hito 1 routing (see ``Route``).
+Also defines Hito 1's two possible per-review outcomes beyond plain
+aggregation: a human-reviewable draft reply, or an escalation flag.
 """
 
 from __future__ import annotations
@@ -95,18 +96,63 @@ class ClassifiedAnalysis(BaseModel):
     aspects: list[AspectMention] = Field(default_factory=list)
     severity_flag: bool = Field(
         default=False,
-        description="Reserved for future escalation routing (Hito 1+). Unused in Hito 0.",
+        description="Drives Hito 1 escalation routing — see Route.ESCALATE in routing.decide_route.",
     )
 
 
 class ReviewAnalysis(ClassifiedAnalysis):
-    """Structured analysis output for a single review, with identifiers.
+    """Structured analysis output for a single review, with identifiers."""
 
-    ``severity_flag`` is carried in the schema now (per CLAUDE.md — leave
-    the door open for future escalation) but is NOT consumed by any
-    Hito 0 logic; escalation routing is explicitly out of scope until
-    Hito 1/2.
+    review_id: str
+    business_id: str
+
+
+class Route(str, Enum):
+    """Where a classified review goes next, decided by ``routing.decide_route``.
+
+    Deliberately NOT itself an LLM output: routing is a pure Python
+    if/elif over already-classified fields (see docs/DESIGN.md for why a
+    graph orchestrator isn't justified for 3 known routes). Every review
+    is aggregated regardless of route — this only decides whether an
+    *additional* action (draft, escalation) also fires.
+    """
+
+    AGGREGATE = "aggregate"
+    DRAFT_RESPONSE = "draft_response"
+    ESCALATE = "escalate"
+
+
+class DraftText(BaseModel):
+    """LLM output for a draft reply — everything except identifiers.
+
+    Split from ``DraftResponse`` for the same reason ``ClassifiedAnalysis``
+    is split from ``ReviewAnalysis``: identifiers are known to the caller
+    before generation runs, so the model is never asked to echo one back.
+    """
+
+    draft_text: str = Field(description="Proposed reply text, for human review only — never auto-sent.")
+
+
+class DraftResponse(DraftText):
+    """An LLM-generated draft reply to a negative, non-severe review, with identifiers.
+
+    A draft only. Per CLAUDE.md's non-negotiable rule, AuraPulse never
+    publishes a response without explicit human approval — nothing in
+    this codebase has a "publish" capability at all; that's enforced by
+    the capability simply not existing, not by a flag on this model.
     """
 
     review_id: str
     business_id: str
+
+
+class EscalationFlag(BaseModel):
+    """A review flagged for a human to review urgently.
+
+    Built deterministically from already-classified fields (no LLM call
+    — see ``response_draft.flag_for_escalation``).
+    """
+
+    review_id: str
+    business_id: str
+    reason: str = Field(description="Human-readable explanation of why this review was escalated.")

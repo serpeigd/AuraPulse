@@ -10,13 +10,13 @@ product-improvement signal for the business. Built entirely on free, local tooli
 API keys anywhere**, sentiment/aspect classification runs on a local LLM via
 [Ollama](https://ollama.com).
 
-## Status: 🚧 Work in progress (Hito 0)
+## Status: 🚧 Work in progress (Hito 0 complete, Hito 1 in progress)
 
 This is a portfolio project, developed incrementally with documented design decisions (see
-[`docs/DESIGN.md`](docs/DESIGN.md)). Current milestone (Hito 0) target: a working pipeline from
-raw Yelp reviews to an aggregated reputation/inconsistency report. Not complete yet.
+[`docs/DESIGN.md`](docs/DESIGN.md)). Hito 0 (classify → aggregate → report) is done. Hito 1
+(route each review to a draft reply or a human escalation) has its first slice in place.
 
-**Done:**
+**Done — Hito 0:**
 - `ReviewAnalysis` Pydantic schema (sentiment + per-aspect sentiment, closed aspect enum with an
   `other` escape hatch) — [`src/aurapulse/schemas.py`](src/aurapulse/schemas.py)
 - Deterministic fake-review generator with known ground truth, so the pipeline is testable
@@ -35,20 +35,33 @@ raw Yelp reviews to an aggregated reputation/inconsistency report. Not complete 
   full precision/recall breakdown and what didn't work along the way
 - Structured per-call classification tracing (latency, retries, outcome) —
   [`src/aurapulse/classifier.py`](src/aurapulse/classifier.py)
+- Per-business aggregation with inconsistency flagging (the core "food good, wait time
+  consistently bad" signal) — [`src/aurapulse/aggregation.py`](src/aurapulse/aggregation.py)
+- Human-readable reporting — [`src/aurapulse/reporting.py`](src/aurapulse/reporting.py)
 
-**Not done yet (explicitly out of scope until Hito 0 closes):**
-- Aggregation and reporting across a business's reviews
-- Response-draft generation and escalation routing (Hito 1/2)
+**Done — Hito 1 (first slice):**
+- Routing: a pure, LLM-free `decide_route` function reading already-classified fields (positive/
+  neutral → aggregate, negative w/o severity → draft, negative w/ severity → escalate) — plain
+  `if/elif`, no orchestration framework — [`src/aurapulse/routing.py`](src/aurapulse/routing.py)
+- Draft-reply generation via a local LLM, enforced draft-only (no "publish" capability exists
+  anywhere in this codebase) — [`src/aurapulse/response_draft.py`](src/aurapulse/response_draft.py)
+- Escalation flagging, fully deterministic, no LLM call — same module
+- End-to-end orchestrator wiring routing → handlers → aggregation —
+  [`src/aurapulse/orchestrator.py`](src/aurapulse/orchestrator.py)
+
+**Not done yet:**
+- `severity_flag` reliability (the ESCALATE trigger) — known unreliable, not yet fixed; see
+  `docs/DESIGN.md`
+- A quality eval for draft replies beyond structural/policy checks (no LLM-as-judge yet)
+- Any delivery mechanism for escalations (email/Slack/dashboard) — currently just returned as data
 - Any orchestration framework — LangGraph is deliberately not introduced yet; see
-  `docs/DESIGN.md` for when it would be justified over a plain pipeline
+  `docs/DESIGN.md` for when it would be justified over the current `if/elif` routing
 
 ## Why this project exists
 
-Portfolio project demonstrating agent/LLM orchestration and production practices, run in
-parallel with a sibling project ("Pre-Show Reels") that covers a purely sequential pipeline.
-AuraPulse's angle is conditional routing: when a graph orchestrator earns its complexity versus
-a plain sequential pipeline, decided and documented as the project grows rather than assumed
-up front.
+Portfolio project demonstrating agent/LLM orchestration and production practices. Its angle is
+conditional routing: when a graph orchestrator earns its complexity versus a plain sequential
+pipeline, decided and documented as the project grows rather than assumed up front.
 
 ## Non-negotiable constraints
 
@@ -82,6 +95,7 @@ python scripts/eval_fake_reviews.py         # offline eval against deterministic
 python scripts/validate_sentiment_proxy.py  # validate real reviews against the star-rating proxy
 python scripts/build_labeling_sheet.py      # generate the aspect hand-labeling spreadsheet
 python scripts/validate_aspect_proxy.py     # validate aspect extraction against hand-labeled ground truth
+python scripts/eval_draft_responses.py      # structural/policy checks on generated draft replies
 ```
 
 ## Tests and checks
