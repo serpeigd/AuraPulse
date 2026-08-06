@@ -2,6 +2,63 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Hito 1 kickoff: routing structure, draft generation, escalation
+
+Status: first slice resolved (2026-08-06); several sub-decisions below still open.
+
+**Routing structure — Option B (decide, then act, kept separate).** Three structures were on the
+table: (A) one function that both decides a review's route and executes the action inline; (B) a
+pure `decide_route(analysis) -> Route` decision function, separate from a handler per route,
+wired together by a thin orchestrator; (C) the decision itself persisted as a `RoutingDecision`
+record, fully decoupled from execution — the natural stepping stone to a graph orchestrator if one
+is ever justified. Chose B. Reasoning: `severity_flag` (the ESCALATE trigger) is already known to
+be unreliable (see the "Known gap" entry below in this same file, further down) — the one thing
+worth being able to test cheaply and repeatedly, without mocking LLM calls or generating real
+drafts, is "does routing decide correctly given a classification". B makes `decide_route` pure and
+trivially testable (`tests/test_routing.py` — parametrized over every sentiment/severity
+combination, no mocks) without C's extra persistence layer, which isn't earning its cost yet at 3
+routes. `decide_route` itself makes **no LLM call** — by the time a review reaches it,
+classification already made the only judgment call that matters; routing just reads the result.
+This is also the concrete basis for the project's core "when is a graph orchestrator justified"
+question: as long as this stays a 4-line `if/elif` (see `src/aurapulse/routing.py`), LangGraph
+would be unjustified complexity.
+
+**Neutral reviews route to AGGREGATE, not DRAFT_RESPONSE.** CLAUDE.md's original routing spec
+only says "positive → aggregation"; neutral was ambiguous. Decided: neutral behaves like positive
+(aggregate only). A "food was fine, nothing special" review isn't a complaint that warrants a
+reply — treating every non-positive review as draft-worthy would generate noise for business
+owners to wade through.
+
+**Draft generation — new LLM call, enforced draft-only.** `response_draft.generate_draft_response`
+calls the same local Ollama model via its own system prompt (not reusing the classifier's), with
+explicit constraints: never promise a specific remedy (refund/discount/replacement — that's the
+owner's call), never claim the business already fixed the issue (no way to know that), stay under
+~100 words, sign off generically. Per CLAUDE.md's non-negotiable rule, nothing in this codebase
+has a "publish" or "send" capability at all — `DraftResponse` is a plain data object with nowhere
+to go except back to a human. Ran `scripts/eval_draft_responses.py` (structural/policy checks, not
+a quality judgment — no cheap ground truth exists for "is this reply good") against the 6 NEGATIVE
+reviews in the deterministic fake-review dataset: 6/6 generated successfully, 100% respected every
+hard constraint (word limit, no promised remedy, no false fix claim). One soft check,
+`mentions_a_complained_aspect` (does the draft text contain the literal aspect name, e.g. "wait
+time"), scored 4/6 (66.7%) — but manually reading the 2 "misses" (`fake-004`: "apologize for the
+long wait" instead of "wait time"; `fake-006`: "noise level... atmosphere" instead of "ambience")
+shows the model addressed the complaint correctly in both cases, just in different words than the
+enum's literal term. The check itself is a weak literal-substring proxy, not a real quality gap —
+recorded here rather than silently treating 66.7% as if it meant something worse than it does.
+
+**Escalation — deterministic, no LLM.** `response_draft.flag_for_escalation` only formats a
+reason string from fields classification already produced (`severity_flag` + which aspects are
+negative). No model call, no failure mode beyond "the input wasn't actually flagged as severe."
+
+**Known gaps, not yet closed:**
+- `severity_flag` reliability (documented separately in this file, below) directly gates how much
+  the ESCALATE route can be trusted — routing structure and escalation formatting are done, but
+  shipping this to a real user still means escalations may be noisy until that's addressed.
+- No LLM-judge quality eval for drafts exists yet — only the structural/policy eval above. Whether
+  a draft is actually *good* (tone, relevance, doesn't sound robotic) is unmeasured.
+- No delivery mechanism for `EscalationFlag`s — they're returned as data from `process_reviews`,
+  with nowhere to go yet (email/Slack/dashboard are all out of scope for this slice).
+
 ## Fixing the `other_detail` failure mode: code-level normalization, not prompt engineering
 
 Status: resolved (2026-08-06).
