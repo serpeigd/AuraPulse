@@ -223,4 +223,15 @@ Status: resolved (2026-07-30) — **hybrid**.
 
 ## Orchestration framework (LangGraph vs. plain if/elif)
 
-Status: not yet decided — out of scope for Hito 0. Per `CLAUDE.md`, LangGraph is not assumed by default. The routing logic for Hito 1 (positive → aggregation, negative w/o severity → response draft, negative w/ severity signal → escalation) should first be written as plain `if/elif`. Only introduce LangGraph if that conditional logic stops being legible, and document the reasoning here when the call is made.
+Status: superseded by "Hito 1 kickoff: routing structure, draft generation, escalation" above —
+kept here for the history. Original framing (written before Hito 1 started): not yet decided,
+out of scope for Hito 0. Per `CLAUDE.md`, LangGraph is not assumed by default. The routing logic
+for Hito 1 (positive → aggregation, negative w/o severity → response draft, negative w/ severity
+signal → escalation) should first be written as plain `if/elif`. Only introduce LangGraph if
+that conditional logic stops being legible, and document the reasoning here when the call is
+made.
+
+That call has now been made once, for the first slice: `decide_route` is a 4-line `if/elif`
+(see `src/aurapulse/routing.py`), and LangGraph was judged unjustified at 3 routes — see the
+"Hito 1 kickoff" entry above for the full reasoning. This remains an open question going
+forward, not a closed one: revisit if routing logic grows past what stays legible as `if/elif`.
