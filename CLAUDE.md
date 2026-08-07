@@ -44,6 +44,7 @@ Flujo Git
 * Rama nueva siempre: `feature/nombre-cambio`. Nunca commits directos en `main`.
 * Al terminar una tarea: propones commit (mensaje en inglés, convencional) y PR con descripción clara.
 * Merge (actualizado 2026-08-05, decisión explícita mía en chat): mergeas tú mismo la PR a `main`, pero **solo si el CI (pytest, ruff, mypy) está en verde**. Si algún check falla, no mergeas — me avisas con el motivo y esperas instrucción. No hagas squash/force-push de historia ya mergeada sin pedírmelo.
+* **Tarea programada de sincronización de docs (añadido 2026-08-07, decisión explícita mía en chat):** la ejecución automática que sincroniza README/docs corre en una rama nueva con nombre aleatorio cada vez, así que una PR de un run anterior sin mergear no se reutiliza sola. Antes de abrir una PR nueva de este tipo, comprueba si ya hay otra PR abierta en este repo cuyo título empiece por "docs: sync" — si la hay, no dejes las dos abiertas: incorpora en la nueva cualquier contenido único de la antigua que siga siendo válido, mergea la más completa/precisa en cuanto el CI esté en verde (regla de arriba, sin esperar mi confirmación) y cierra la otra con un comentario que enlace a la que se mergeó.
 
 docs/DESIGN.md
 Crea este archivo en el primer commit y documenta ahí cada decisión arquitectónica con su trade-off, igual que en Pre-Show Reels. Como mínimo debe registrar: la decisión del schema de `aspect`, y la decisión de framework de orquestación cuando se tome.
