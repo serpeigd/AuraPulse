@@ -48,10 +48,12 @@ This is a portfolio project, developed incrementally with documented design deci
 - Escalation flagging, fully deterministic, no LLM call — same module
 - End-to-end orchestrator wiring routing → handlers → aggregation —
   [`src/aurapulse/orchestrator.py`](src/aurapulse/orchestrator.py)
+- `severity_flag` reliability (the ESCALATE trigger): balanced ground truth + few-shot fix took it
+  from 100% recall / 25% specificity to 100%/100%, confirmed stable across repeat runs — see
+  [`docs/DESIGN.md`](docs/DESIGN.md) for the fix, a false-alarm-turned-side-finding along the way,
+  and a newly-documented (separate, pre-existing) flakiness in the small fake-review dataset
 
 **Not done yet:**
-- `severity_flag` reliability (the ESCALATE trigger) — known unreliable, not yet fixed; see
-  `docs/DESIGN.md`
 - A quality eval for draft replies beyond structural/policy checks (no LLM-as-judge yet)
 - Any delivery mechanism for escalations (email/Slack/dashboard) — currently just returned as data
 - Any orchestration framework — LangGraph is deliberately not introduced yet; see
@@ -96,6 +98,7 @@ python scripts/validate_sentiment_proxy.py  # validate real reviews against the 
 python scripts/build_labeling_sheet.py      # generate the aspect hand-labeling spreadsheet
 python scripts/validate_aspect_proxy.py     # validate aspect extraction against hand-labeled ground truth
 python scripts/eval_draft_responses.py      # structural/policy checks on generated draft replies
+python scripts/eval_severity_fake_reviews.py  # severity_flag accuracy on a balanced deterministic set
 ```
 
 ## Tests and checks

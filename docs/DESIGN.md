@@ -2,6 +2,55 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Fixing `severity_flag` reliability: bigger ground truth first, then the same few-shot playbook
+
+Status: resolved (2026-08-06).
+
+**Context.** `severity_flag` had been flagged as unreliable since Hito 0 (50% accuracy, not the
+same cases each run — see the "Known gap" entry further down), but was never fixed because nothing
+consumed it until Hito 1 routing shipped. That 50% number came from `generate_fixed_dataset()`,
+which has exactly **one** `severity_flag=True` case among eight reviews — nowhere near enough
+signal to diagnose anything. Before touching the prompt, added `generate_severity_dataset()`
+(`src/aurapulse/fake_reviews.py`, `SeverityCase`) and `scripts/eval_severity_fake_reviews.py`: 8
+genuinely severe cases across different categories (foodborne illness, injury, health-code
+violation, harassment, fraud, allergic reaction, fire, physical altercation) and 8 "near miss"
+cases — ordinary complaints in emotionally intense language ("worst meal of my life", "disgusting",
+"nightmare") that aren't actually safety/health/legal issues.
+
+**Baseline on the real denominator:** 100% recall (8/8 genuinely severe cases correctly flagged) but
+only 25% specificity (2/8 — six of the eight "near miss" cases were false-flagged). The model was
+conflating emotional intensity with genuine severity, not missing real issues. Worth naming
+explicitly: 100%-recall-poor-precision is the *safer* of the two possible failure directions for a
+field that gates human escalation — better some false alarms than a missed emergency — but 75%
+false-positive rate on ordinary complaints would still flood a human reviewer and make the flag
+useless in practice (the "cried wolf" problem).
+
+**Fix — same playbook as the aspect-precision fix:** reinforced the `severity_flag` system-prompt
+bullet ("this depends on WHAT happened, not how dramatically the reviewer describes it") plus two
+new synthetic few-shot pairs, one demonstrating an intensely-worded ordinary complaint staying
+`False`, one demonstrating a calmly-worded genuine safety issue staying `True` — deliberately
+different text from `eval_severity_fake_reviews.py`'s fixtures, so the fix teaches the general
+tone-vs-substance distinction rather than memorizing eval sentences (which would invalidate the
+eval as a generalization test). Result, confirmed stable across two separate runs: **100% accuracy**
+(8/8 recall, 8/8 specificity) — the false-positive problem fully resolved on this dataset.
+
+**A false alarm worth recording.** The first pass at verifying this fix looked like it broke the
+mixed-positive+negative-aspects → NEGATIVE convention from the aspect-precision fix (three
+`generate_fixed_dataset()` reviews started coming back NEUTRAL). Before shipping that as a
+trade-off, re-ran the *unmodified* `main` prompt under the same conditions — and got the *same*
+failure pattern on the *unchanged* code. `generate_fixed_dataset()`'s 8-review sample turns out to
+already be too small and noisy to reliably attribute a specific outcome to a specific prompt change
+— a lesson to carry forward, not just for this change. Also re-ran the trusted, larger 100-review
+real-data aspect eval (`scripts/validate_aspect_proxy.py`) as the actual regression check: 42%/32%
+match, 0 classification failures — within the run-to-run noise band already observed for that eval
+across prior sessions (36–44% swings on an *unchanged* prompt), not a real regression.
+
+**New known gap, discovered as a side effect, not fixed here:** the mixed-positive+negative →
+NEGATIVE convention is flakier on `generate_fixed_dataset()`'s tiny sample than previously
+documented — it isn't specific to this change, and predates it. Worth either expanding that fixed
+dataset's mixed-sentiment coverage or accepting the noise and relying on the larger real-data evals
+for sentiment-convention regression checks going forward.
+
 ## Hito 1 kickoff: routing structure, draft generation, escalation
 
 Status: first slice resolved (2026-08-06); several sub-decisions below still open.
@@ -185,9 +234,9 @@ Status: resolved (2026-07-30), informed by the first offline eval against `llama
 
 ## Known gap: `severity_flag` is unreliable from the local model
 
-Status: acknowledged, not fixed — deferred, since `severity_flag` is explicitly unused by any Hito 0 logic.
+Status: resolved (2026-08-06) — see "Fixing `severity_flag` reliability" above.
 
-Across two eval runs, `severity_flag` accuracy sat at 50% (4/8) both times, but *which* 4 reviews it got right changed between runs — i.e. it's not a stable, learnable signal with the current prompt, it's closer to noise. This is fine to defer because escalation routing (the only consumer of this field) is out of scope until Hito 1/2, but flagging it now so it isn't mistaken for "done" — likely needs few-shot examples or a narrower prompt when severity/escalation work actually starts.
+Across two eval runs, `severity_flag` accuracy sat at 50% (4/8) both times, but *which* 4 reviews it got right changed between runs — i.e. it's not a stable, learnable signal with the current prompt, it's closer to noise. This was fine to defer while escalation routing was out of scope, but became the top-priority Hito 1 gap once routing shipped (see "Hito 1 kickoff" above) — a routing decision is only as trustworthy as the field it routes on.
 
 ## Classification backend: local LLM via Ollama (no paid API keys)
 
