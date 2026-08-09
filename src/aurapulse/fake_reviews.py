@@ -184,3 +184,134 @@ def generate_fixed_dataset() -> list[FakeReview]:
             severity_flag=True,
         ),
     ]
+
+
+class SeverityCase(NamedTuple):
+    """One review text paired with its expected ``severity_flag`` value only.
+
+    Deliberately lighter than ``FakeReview``/``ReviewAnalysis`` -- these
+    cases exist purely to test the severity judgment call, not aspect or
+    sentiment extraction, so there's no aspect/sentiment ground truth to
+    carry around.
+    """
+
+    review_id: str
+    text: str
+    severity_flag: bool
+
+
+def generate_severity_dataset() -> list[SeverityCase]:
+    """Return a fixed, deterministic set of reviews for testing ``severity_flag`` specifically.
+
+    ``generate_fixed_dataset()`` has only one severity=True case out of
+    eight reviews -- nowhere near enough signal to tell a real reliability
+    problem from noise (see docs/DESIGN.md's "Known gap" entry, based on
+    exactly that one-case denominator). This exists to fix that before any
+    prompt change is attempted.
+
+    Two groups, by design:
+        - TRUE cases: genuine safety/health/legal issues, spread across
+          different categories (foodborne illness, physical injury,
+          health-code violation, harassment, fraud, allergic reaction,
+          fire/evacuation, physical altercation) so a fix can't just
+          overfit to one phrasing.
+        - FALSE "near miss" cases: ordinary negative reviews using
+          emotionally intense language ("disgusting", "nightmare",
+          "worst ... of my life") about food/service/price/wait/ambience
+          — the working hypothesis this dataset is built to test is that
+          the model over-triggers on emotional intensity rather than
+          genuine severity criteria (safety/health/legal). If false
+          cases score much worse than true cases, that hypothesis holds.
+    """
+    return [
+        # --- TRUE: genuine safety/health/legal issues ---
+        SeverityCase(
+            "sev-true-001",
+            "I got severe food poisoning after eating here and had to go to the "
+            "emergency room that same night.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-002",
+            "I bit into my sandwich and there was a piece of glass in it that cut "
+            "the inside of my mouth.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-003",
+            "We saw a live rat run across the kitchen floor, in plain view of the "
+            "dining room, while we were eating.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-004",
+            "The manager screamed racial slurs at my family and told us to get out.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-005",
+            "They charged my card twice without authorization and refused to reverse "
+            "it when I called to dispute it.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-006",
+            "My son has a severe peanut allergy. Despite telling the waiter twice, "
+            "they served him food with peanuts in it and he had to use his EpiPen.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-007",
+            "There was a small kitchen fire while we were seated, and staff never "
+            "evacuated us or explained what was happening.",
+            True,
+        ),
+        SeverityCase(
+            "sev-true-008",
+            "A cook came out of the kitchen and shoved my husband during an argument "
+            "over the bill.",
+            True,
+        ),
+        # --- FALSE: ordinary complaints in emotionally intense language ---
+        SeverityCase(
+            "sev-false-001",
+            "Absolutely the worst meal of my life. I will never come back here again.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-002",
+            "This is disgusting, the food tasted like it came out of a can.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-003",
+            "We waited over an hour for a table and it was infuriating.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-004",
+            "The service was a nightmare, our waiter was rude to us the entire time.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-005",
+            "Way too expensive for what you get, total ripoff.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-006",
+            "The place was filthy, I could barely enjoy my meal.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-007",
+            "Terrible experience all around, would give zero stars if I could.",
+            False,
+        ),
+        SeverityCase(
+            "sev-false-008",
+            "The music was way too loud and the tables were so cramped we could "
+            "barely move.",
+            False,
+        ),
+    ]

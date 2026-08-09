@@ -6,7 +6,7 @@ classification exists, by running the same fixed dataset's review
 text through the classifier and diffing against ``expected``.
 """
 
-from aurapulse.fake_reviews import generate_fixed_dataset
+from aurapulse.fake_reviews import generate_fixed_dataset, generate_severity_dataset
 from aurapulse.schemas import Aspect, ReviewAnalysis, Sentiment
 
 
@@ -78,3 +78,36 @@ def test_mixed_positive_and_negative_aspects_yield_negative_overall() -> None:
         sentiments = {mention.sentiment for mention in review.expected.aspects}
         if Sentiment.POSITIVE in sentiments and Sentiment.NEGATIVE in sentiments:
             assert review.expected.overall_sentiment == Sentiment.NEGATIVE, review.expected.review_id
+
+
+# --- generate_severity_dataset (2026-08-06, see docs/DESIGN.md) ---
+
+
+def test_severity_dataset_is_non_empty_and_has_unique_ids() -> None:
+    cases = generate_severity_dataset()
+    assert len(cases) > 0
+    assert len({c.review_id for c in cases}) == len(cases)
+
+
+def test_severity_dataset_generation_is_deterministic() -> None:
+    first = generate_severity_dataset()
+    second = generate_severity_dataset()
+    assert first == second
+
+
+def test_severity_dataset_has_both_true_and_false_cases_with_real_denominators() -> None:
+    """The whole point of this dataset: enough of each class to trust a percentage.
+
+    The old 8-review generate_fixed_dataset() had exactly one severity=True
+    case -- not enough to distinguish a real reliability problem from noise.
+    """
+    cases = generate_severity_dataset()
+    true_cases = [c for c in cases if c.severity_flag]
+    false_cases = [c for c in cases if not c.severity_flag]
+    assert len(true_cases) >= 5
+    assert len(false_cases) >= 5
+
+
+def test_severity_dataset_every_case_has_nonempty_text() -> None:
+    for case in generate_severity_dataset():
+        assert case.text.strip() != ""

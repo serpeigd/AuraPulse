@@ -64,8 +64,16 @@ Given a single customer review, extract:
   free-text label for what it actually is.
 - severity_flag: true only if the review describes something a
   business owner would need to act on urgently (e.g. a safety,
-  health, or legal issue). False for ordinary complaints about food,
-  service, price, cleanliness, wait time, or ambience.
+  health, or legal issue — foodborne illness, injury, contamination,
+  discrimination or harassment, fraud, fire, physical altercation).
+  This depends on WHAT happened, not how dramatically the reviewer
+  describes it. Do not set this to true just because the review uses
+  strong or emotional language ("disgusting", "worst ever",
+  "nightmare", "infuriating", "zero stars") about an ordinary food,
+  service, price, wait-time, or ambience complaint — those stay false
+  no matter how intense the wording is. Conversely, a calmly-worded
+  review can still be severe if the underlying issue is genuinely a
+  safety, health, or legal one.
 
 Respond with nothing but the structured JSON described by the schema.
 """
@@ -74,12 +82,32 @@ Respond with nothing but the structured JSON described by the schema.
 # and data/processed/*.csv is gitignored precisely to keep dataset content
 # out of it, see docs/DESIGN.md) few-shot pairs demonstrating restraint.
 #
-# Both target the failure mode found in the 2026-08-05 aspect-proxy eval
-# (100 hand-labeled reviews, 36% aspect-set match / 24% aspect+sentiment
+# The first two target the failure mode found in the 2026-08-05 aspect-proxy
+# eval (100 hand-labeled reviews, 36% aspect-set match / 24% aspect+sentiment
 # match): the model was adding aspects the review never discusses, almost
 # always tagged "neutral" -- 39 of 62 false-positive aspect predictions in
 # price/wait_time/ambience/other were "neutral" filler. See docs/DESIGN.md
 # for the full before/after writeup.
+#
+# The last two target the severity_flag over-triggering found in the
+# 2026-08-06 severity eval (scripts/eval_severity_fake_reviews.py): 100%
+# recall on genuinely severe cases, but only 25% specificity (6/8 false
+# positives) on ordinary complaints worded with emotional intensity. Text
+# here is deliberately DIFFERENT from that eval's fixtures (see
+# fake_reviews.generate_severity_dataset) -- reusing the exact eval
+# sentences as few-shot examples would teach the specific sentences instead
+# of the general tone-vs-substance distinction, invalidating the eval as a
+# generalization test.
+#
+# NOTE on a false alarm during this change: adding these two pairs initially
+# looked like it broke the mixed-positive+negative -> NEGATIVE convention
+# (fake-004/005/006 came back NEUTRAL). Re-testing unmodified `main` the same
+# day, under the same load, reproduced the *same* failure pattern on the
+# *unchanged* prompt (fake-004/006/007 all NEUTRAL) -- generate_fixed_dataset()
+# has only 8 reviews, and this specific "mixed sentiment" case turns out to
+# already be a flaky, pre-existing failure mode, not something these two
+# pairs caused. Flagged as its own known gap in docs/DESIGN.md rather than
+# silently ignored, but not blocking this change.
 _FEW_SHOT_EXAMPLES: list[tuple[str, ClassifiedAnalysis]] = [
     (
         (
@@ -105,6 +133,34 @@ _FEW_SHOT_EXAMPLES: list[tuple[str, ClassifiedAnalysis]] = [
                 AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.POSITIVE),
                 AspectMention(aspect=Aspect.SERVICE, sentiment=Sentiment.NEGATIVE),
             ],
+        ),
+    ),
+    (
+        (
+            "Hands down the worst pizza I've ever had in my life -- absolutely "
+            "disgusting, and it showed up stone cold. What a nightmare."
+        ),
+        ClassifiedAnalysis(
+            # Emotionally intense language about an ordinary food complaint.
+            # severity_flag stays False -- nothing safety/health/legal here,
+            # no matter how dramatic the wording.
+            overall_sentiment=Sentiment.NEGATIVE,
+            aspects=[AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.NEGATIVE)],
+            severity_flag=False,
+        ),
+    ),
+    (
+        (
+            "A few hours after eating here, three people in my party came down with "
+            "severe stomach cramps and vomiting. We think it was the seafood."
+        ),
+        ClassifiedAnalysis(
+            # Calm, matter-of-fact tone, but the substance is a genuine
+            # foodborne-illness safety issue -- severity_flag is True
+            # regardless of how mild the wording is.
+            overall_sentiment=Sentiment.NEGATIVE,
+            aspects=[AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.NEGATIVE)],
+            severity_flag=True,
         ),
     ),
 ]
