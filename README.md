@@ -174,8 +174,21 @@ recursively for `yelp_academic_dataset_business.json` and `yelp_academic_dataset
 
 ## Configuration
 
-All configuration is optional environment variables (see [`.env.example`](.env.example)); copy
-it to `.env` to override the defaults. No API keys are required for anything in this repo.
+All configuration is optional environment variables (see [`.env.example`](.env.example)). No API
+keys are required for anything in this repo.
+
+**Note:** nothing in this codebase currently calls `load_dotenv()` (the `python-dotenv` dependency
+in `pyproject.toml` isn't wired in yet), so a plain `.env` file is *not* picked up automatically —
+copying `.env.example` to `.env` and editing it has no effect on its own. To actually override a
+default, export the variable in your shell before running a script, e.g.:
+
+```bash
+export OLLAMA_MODEL=llama3.1:70b
+python scripts/eval_fake_reviews.py
+```
+
+or source `.env` yourself (`set -a; source .env; set +a` on bash/zsh). Treat `.env.example` as
+documentation of the two variables that matter, not a drop-in config file — yet.
 
 | Variable       | Default                 | Purpose                                    |
 |----------------|--------------------------|---------------------------------------------|
@@ -282,6 +295,14 @@ truth conventions, what was tried and reverted and why — is logged with its tr
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
   part that changed.
+- **`.env` isn't auto-loaded.** `python-dotenv` is a dependency but nothing calls `load_dotenv()`
+  yet, so `OLLAMA_HOST`/`OLLAMA_MODEL` must be real exported environment variables, not just lines
+  in a `.env` file — see "Configuration" above.
+- **Classification trace logs aren't wired to a file by default.** `classifier.py` emits structured
+  JSON via the standard `logging` module (see `docs/DESIGN.md`'s "Observability" entry), but no
+  script currently configures a handler or writes to `data/logs/` — that path in `docs/DESIGN.md`'s
+  example `grep` command is illustrative of the intended workflow, not something that exists yet
+  out of the box. Configure a `logging.FileHandler` yourself (or run with `2>logfile`) to capture it.
 - **The Yelp dataset isn't shipped.** It must be downloaded manually after accepting Yelp's
   terms of use; nothing in this repo can fetch it for you.
 
