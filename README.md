@@ -64,12 +64,17 @@ This is a portfolio project, developed incrementally with documented design deci
   trusted — 3 of 4 rubric criteria confirmed (tone, editability, genericness), the 4th kept in the
   prompt but excluded from the trusted report after a genuinely surprising finding: removing it
   destabilized the other three on unchanged drafts, meaning this model doesn't judge multi-criteria
-  rubrics independently — see [`docs/DESIGN.md`](docs/DESIGN.md) for the full story. The validated
-  result itself is a real quality finding: every generated draft reads as generic/templated, a
-  target for a future prompt pass on `response_draft.py`
+  rubrics independently — see [`docs/DESIGN.md`](docs/DESIGN.md) for the full story
+- Fixed the generic/templated-reply finding: `response_draft.py`'s prompt now requires a concrete
+  fact → impact → action structure and bans the boilerplate phrases every original draft used.
+  Human-confirmed improvement; the judge's `not_generic` criterion still disagrees on the new
+  drafts, and the design doc explains why that's an expected limit of the validation, not a new
+  bug — a validated judge is only validated for the output distribution it saw
 
 **Not done yet:**
-- A prompt pass on `response_draft.py` to fix the generic/templated-reply finding above
+- Wire `orchestrator.process_reviews()` into a runnable script against real classified reviews —
+  it exists and is tested, but nothing currently invokes the full Hito 1 flow end-to-end outside
+  of tests and the fake-review demo
 - Any delivery mechanism for escalations (email/Slack/dashboard) — currently just returned as data
 - Any orchestration framework — LangGraph is deliberately not introduced yet; see
   `docs/DESIGN.md` for when it would be justified over the current `if/elif` routing
@@ -288,13 +293,16 @@ truth conventions, what was tried and reverted and why — is logged with its tr
   breakdown and what was tried is in `docs/DESIGN.md` — this is disclosed, not hidden.
 - **No delivery mechanism yet.** Drafts and escalations are returned as in-memory Pydantic
   objects (`DraftResponse`, `EscalationFlag`) — no email, Slack, or dashboard integration.
-- **Generated draft replies read as generic/templated.** Confirmed by a human-validated
-  LLM-judge eval (`scripts/eval_draft_quality.py`), not just a hunch — see `docs/DESIGN.md`. Tone
-  and editability are solid; specificity/personalization is the known gap for a future prompt pass.
 - **A multi-criteria LLM-judge prompt doesn't judge criteria independently.** Removing one
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
   part that changed.
+- **A validated LLM-judge is only validated for the output distribution it saw.** After fixing
+  the generic-draft finding above, the judge's `not_generic` criterion kept flagging the
+  *improved* drafts as generic too — human-confirmed disagreement. It was validated against
+  boilerplate-phrase genericness specifically, never against the new fact→impact→action
+  structure, so that disagreement doesn't carry the same weight as the original validation. See
+  `docs/DESIGN.md`.
 - **`.env` isn't auto-loaded.** `python-dotenv` is a dependency but nothing calls `load_dotenv()`
   yet, so `OLLAMA_HOST`/`OLLAMA_MODEL` must be real exported environment variables, not just lines
   in a `.env` file — see "Configuration" above.

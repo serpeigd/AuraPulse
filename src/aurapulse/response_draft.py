@@ -44,9 +44,21 @@ _DRAFT_SYSTEM_PROMPT = """You are drafting a reply to a negative customer review
 restaurant owner to read, edit, and send themselves. You never send anything yourself — \
 you only produce a draft for a human to approve.
 
-Write a short, professional, empathetic reply that:
-- Acknowledges the specific complaint(s) in the review, using details from the review
-  text itself. Do not write something generic that could apply to any negative review.
+Write a short, professional, empathetic reply that does THREE specific things, in this order:
+1. Names the concrete fact from the review — not "your experience," the actual thing that
+   happened (the exact wait time, what was dirty, what staff did, what the food tasted like).
+2. Acknowledges why that mattered to this customer specifically — the impact, not a generic
+   "we're sorry for the inconvenience."
+3. Names one concrete internal action tied to THIS complaint (e.g. "we're reviewing how tables
+   were staffed that night," "we're walking through our cleaning checklist this week") — not a
+   vague promise to "do better" or "use this as an opportunity to improve."
+
+Do NOT use boilerplate opening or closing phrases like "we take this seriously," "we take all
+feedback/complaints seriously," "thank you for bringing this to our attention," or "thank you
+for your feedback" — these read as generic regardless of what follows them. A draft padded with
+phrases like these will be rejected even if the middle is specific.
+
+Further constraints:
 - Does NOT promise a specific remedy (refund, discount, free item, replacement) — that
   decision belongs to the owner, not you.
 - Does NOT claim the business has already fixed the issue — you have no way of knowing
@@ -56,6 +68,40 @@ Write a short, professional, empathetic reply that:
 
 Respond with nothing but the structured JSON described by the schema.
 """
+
+# Synthetic (not real Yelp text -- response_draft.py ships in the public repo, see
+# docs/DESIGN.md) few-shot pairs demonstrating the fact -> impact -> action pattern
+# above, targeting the genericness finding from the 2026-08-09 human-validated
+# draft-quality eval (scripts/eval_draft_quality.py): every one of 14 generated
+# drafts read as generic/templated, wrapped in boilerplate like "we take this
+# seriously... thank you for your feedback." Both examples avoid every banned
+# phrase and name a concrete internal action, not a vague promise.
+_FEW_SHOT_EXAMPLES: list[tuple[str, DraftText]] = [
+    (
+        (
+            "We waited over 45 minutes just to get our order taken, even though the food "
+            "itself was great once it arrived."
+        ),
+        DraftText(
+            draft_text=(
+                "A 45-minute wait before anyone even took your order is too long, especially "
+                "when the meal itself turned out well and that wait ate into your evening for "
+                "nothing. We're reviewing how tables were staffed and assigned that night to "
+                "catch this kind of delay before it happens again. — The team"
+            )
+        ),
+    ),
+    (
+        "The place was filthy, I could barely enjoy my meal.",
+        DraftText(
+            draft_text=(
+                "A dining room that feels dirty gets in the way of the meal itself, and that's "
+                "exactly what happened on your visit. We're walking through our cleaning "
+                "checklist with the team this week to find where that slipped. — The team"
+            )
+        ),
+    ),
+]
 
 
 def _emit_trace(
@@ -134,10 +180,11 @@ def generate_draft_response(
     user_content = (
         f"Review:\n{text}\n\nAspects the review criticized: {', '.join(negative_aspects) or 'unspecified'}"
     )
-    messages = [
-        {"role": "system", "content": _DRAFT_SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
+    messages: list[dict[str, str]] = [{"role": "system", "content": _DRAFT_SYSTEM_PROMPT}]
+    for example_text, example_draft in _FEW_SHOT_EXAMPLES:
+        messages.append({"role": "user", "content": f"Review:\n{example_text}"})
+        messages.append({"role": "assistant", "content": example_draft.model_dump_json()})
+    messages.append({"role": "user", "content": user_content})
 
     start = time.monotonic()
     last_error: Exception | None = None
