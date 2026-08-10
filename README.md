@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="AuraPulse logo" width="120" height="120">
+  <img src="docs/assets/AuraPulse_logo.png" alt="AuraPulse logo" width="360">
 </p>
 
 <h1 align="center">AuraPulse</h1>
@@ -147,7 +147,7 @@ AuraPulse/
 │   └── processed/          # Built review subsets / classified output (gitignored)
 ├── docs/
 │   ├── DESIGN.md           # Architectural decision log, one entry per decision + trade-offs
-│   └── assets/logo.svg
+│   └── assets/AuraPulse_logo.png
 ├── .github/workflows/ci.yml
 ├── pyproject.toml
 ├── .env.example
