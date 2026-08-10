@@ -23,6 +23,10 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 
+# Escalation records: runtime output from scripts/run_pipeline.py, not code
+data/escalations/*
+!data/escalations/.gitkeep
+
 # OS / editor
 .DS_Store
 .vscode/
