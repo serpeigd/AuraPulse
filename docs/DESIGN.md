@@ -2,6 +2,75 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Draft-quality eval: LLM-as-judge validated against a human, with a methodological surprise
+
+Status: resolved (2026-08-07) — 3/4 rubric criteria validated and trusted; the 4th kept but not trusted.
+
+**Context.** `scripts/eval_draft_responses.py` (Hito 1) only checks structural/policy constraints
+(word limit, no promised remedy, no false fix claim) — nothing about whether a draft is actually
+*good*. There's no free ground truth for reply quality the way star ratings proxy sentiment, so
+three options were on the table: (A) LLM-as-judge with the same local model, (B) pure human
+review, (C) hybrid — build the judge, validate its verdicts against an independent human's on the
+same drafts before trusting it, matching the project's own established pattern for anything
+without a free proxy (aspect needed hand-labeling before the extractor was trusted; this needed
+the same for judge-then-generation trust). Chose C.
+
+**Rubric design.** Four specific, checkable yes/no questions instead of one holistic "rate 1-10"
+score (`src/aurapulse/draft_judge.py`, `DraftQualityVerdict`) — vague holistic scores are more
+exploitable by the self-evaluation bias of using the same model (`llama3.1:8b`) to grade its own
+output. Generated + judged drafts for 14 candidate reviews (the 6 NEGATIVE reviews in
+`generate_fixed_dataset()` + the 8 near-miss cases in `generate_severity_dataset()`), published as
+an interactive artifact for independent human review.
+
+**First human-agreement result:** 3 of 4 criteria matched the human's verdicts on all 14 drafts —
+`appropriate_tone` 14/14, `usable_with_minor_edits` 14/14, `not_generic` 0/14 (both judge and
+human agreed every draft *is* generic — a real quality finding about `response_draft.py`, not a
+judge failure; see "Not done yet" below). The 4th, `addresses_specific_complaint`, scored **0/14
+agreement** — the human's read: the judge conflated "wrapped in boilerplate apology language"
+with "doesn't address the complaint's substance," marking replies False even when they explicitly
+named the complaint (e.g. a reply literally containing "a long wait" was still marked as not
+addressing a "45 minute wait" complaint).
+
+**First fix attempt: revise the criterion's wording**, informed directly by the human's specific
+disagreements (an explicit paraphrase-counts example, an explicit "don't let boilerplate wrapper
+language count against this" instruction, an explicit carve-out for reviews too vague to have a
+concrete detail to respond to). Re-judged the *same* 14 drafts (no regeneration needed). Result:
+4/14 agreement, up from 0/14 but nowhere near acceptable — and in the case the revision's own
+worked example almost exactly matched (paraphrasing a "45 minute wait" as "a long wait"), the
+judge still failed it. Conclusion: this is a capability ceiling for an 8B quantized model on this
+specific semantic-equivalence judgment, not a prompt-wording problem — more prompt iteration on
+the same axis wasn't going to close the gap, echoing the `other_detail` and `severity_flag`
+lessons earlier in this project about knowing when to stop iterating blindly.
+
+**Second attempt — and the actual finding worth remembering: dropping the criterion entirely
+broke the criteria that were already validated.** The natural next move was to remove
+`addresses_specific_complaint` from the schema and prompt (down to 3 questions) and keep the 3
+that worked. Doing that and re-running the *same* eval flipped `appropriate_tone` from 14/14 True
+to **0/14 True** — on unchanged draft text, with a question whose own wording was never touched.
+Isolated the cause with a 3-item spot check re-running the exact original 4-question prompt
+verbatim: `appropriate_tone` came back to 3/3 True immediately. Confirmed: **this model does not
+judge these rubric criteria independently** — the set of questions present in the prompt measurably
+affects verdicts on unrelated ones, at least for this task/model. This is a bigger and more
+useful finding than "one criterion doesn't work": it means a multi-criteria LLM-judge prompt has
+to be validated and re-validated as a *whole*, not criterion-by-criterion — changing or removing
+one question, even one nobody trusts, can silently invalidate calibration already established for
+the others.
+
+**Final decision:** kept the exact 4-question prompt structure as originally validated.
+`addresses_specific_complaint` is still asked (removing it destabilizes the rest) but its value is
+never surfaced in the trusted aggregate report — `scripts/eval_draft_quality.py`'s
+`VALIDATED_CRITERIA` covers only the 3 confirmed criteria, and `DraftQualityVerdict`'s docstring
+states plainly which field not to trust and why. Re-ran the full 14-drafts eval one more time
+against the restored prompt to confirm reproducibility: `appropriate_tone` 14/14, `usable_with_minor_edits`
+14/14, `not_generic` 0/14 — an exact match to the original human-validated run.
+
+**Not done yet (a real quality finding, not just an eval-infrastructure one):** both the human
+reviewer and the judge agree every one of the 14 drafts reads as generic/templated ("Dear valued
+customer... we take this seriously... Thank you... — The team") even when the underlying content
+is on-topic. `response_draft.py`'s prompt hasn't been iterated on for this specific failure mode
+yet — worth a future pass, informed by the human's own suggested fix pattern: acknowledge the
+concrete fact, its impact, and a specific action, not just a templated apology wrapper.
+
 ## Fixing `severity_flag` reliability: bigger ground truth first, then the same few-shot playbook
 
 Status: resolved (2026-08-06).
