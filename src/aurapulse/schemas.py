@@ -156,3 +156,52 @@ class EscalationFlag(BaseModel):
     review_id: str
     business_id: str
     reason: str = Field(description="Human-readable explanation of why this review was escalated.")
+
+
+class DraftQualityVerdict(BaseModel):
+    """An LLM judge's assessment of one draft reply against four criteria -- three trusted, one not.
+
+    Deliberately NOT a single holistic "rate 1-10" score — see
+    ``draft_judge.py``'s module docstring for why (vague scores are more
+    prone to the self-evaluation bias of using the same model that wrote
+    the draft to also judge it). This is a proxy for human judgment, not
+    a replacement for it: see docs/DESIGN.md for the human-agreement
+    check ``appropriate_tone``, ``usable_with_minor_edits``, and
+    ``not_generic`` were validated against before being trusted for
+    regression use.
+
+    ``addresses_specific_complaint`` is asked but NOT trusted: 0/14
+    agreement with an independent human reviewer, then 4/14 after a
+    revised prompt informed by that human's specific disagreements --
+    llama3.1:8b couldn't reliably tell "paraphrases the complaint" from
+    "vague non-response," even given a worked example matching one of
+    the actual failing cases almost verbatim. That's a capability
+    ceiling, not a prompt-wording bug.
+
+    It stays IN the schema and the prompt rather than being dropped,
+    because dropping it was tried and had a worse side effect: removing
+    the question measurably destabilized ``appropriate_tone`` (14/14
+    True -> 0/14 True on the exact same drafts, confirmed by isolating
+    the change) even though that question's own wording never changed.
+    This model does not judge these criteria independently -- the set of
+    questions asked together affects answers to unrelated ones. Keep the
+    full four-question prompt exactly as validated; only the fourth
+    field's *value* is untrusted, not its presence. See docs/DESIGN.md.
+    """
+
+    addresses_specific_complaint: bool = Field(
+        description=(
+            "NOT validated against human judgment -- do not use for regression decisions. "
+            "Asked anyway because removing the question destabilized the other three (see class docstring)."
+        )
+    )
+    appropriate_tone: bool = Field(
+        description="Empathetic and professional, without being defensive, dismissive, or insincere?"
+    )
+    usable_with_minor_edits: bool = Field(
+        description="Could an owner send this with only small edits, or would it need a rewrite?"
+    )
+    not_generic: bool = Field(
+        description="Reads as written for this specific complaint, not boilerplate for any negative review?"
+    )
+    reasoning: str = Field(description="1-2 sentences explaining the verdicts above.")
