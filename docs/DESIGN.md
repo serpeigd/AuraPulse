@@ -2,6 +2,35 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## End-to-end pipeline script + escalation delivery
+
+Status: resolved (2026-08-10).
+
+**Gap.** `orchestrator.process_reviews()` (routing → draft/escalate → aggregate, Hito 1's actual
+end-to-end flow) existed and was unit-tested, but nothing invoked it outside of tests.
+`scripts/generate_report.py --demo` only exercises Hito 0 (classify + aggregate) — it never
+routes. There was no way to see the full Hito 1 flow run against anything without writing a
+throwaway script.
+
+**Decision:** `scripts/run_pipeline.py`, following `generate_report.py`'s existing `--demo`
+convention (deterministic fake reviews, no Yelp dataset needed) rather than inventing a new one.
+One difference worth naming: `generate_report.py --demo` needs no Ollama server at all (it reuses
+the fake dataset's pre-baked `ReviewAnalysis`, skipping classification entirely), but
+`run_pipeline.py --demo` does need one — draft generation is always a real LLM call, there's no
+way to demo the DRAFT_RESPONSE route without one. Verified end-to-end against a live server: 8
+fake reviews in, 5 drafted, 1 escalated, 2 aggregated-only, matching `routing.decide_route`'s
+known behavior on that fixed dataset exactly.
+
+**Escalation delivery.** `src/aurapulse/escalation_delivery.py` appends each `EscalationFlag` as
+one JSON line to `data/escalations/escalations.jsonl` — the same log-based pattern already used
+for classification/draft-generation tracing (see "Observability" below). Chose this over any real
+integration (email/Slack/dashboard) because the zero-cost constraint (see CLAUDE.md) rules out
+most of those outright, and building a real integration before there's a real user waiting on it
+would be speculative. Appends rather than overwrites, so a human reviewing the file sees the full
+accumulated history across runs, not just the latest one. This is explicitly a placeholder, not a
+final answer — revisit when there's an actual consumer (a person, a script, a dashboard) that
+needs escalations pushed rather than pulled from a file.
+
 ## Fixing the generic-draft finding — and a judge that didn't generalize to the fix
 
 Status: resolved (2026-08-10), with a documented limit on how far the judge's validation reaches.

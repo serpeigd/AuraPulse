@@ -70,12 +70,14 @@ This is a portfolio project, developed incrementally with documented design deci
   Human-confirmed improvement; the judge's `not_generic` criterion still disagrees on the new
   drafts, and the design doc explains why that's an expected limit of the validation, not a new
   bug — a validated judge is only validated for the output distribution it saw
+- End-to-end pipeline script (`scripts/run_pipeline.py`): the first place `orchestrator.process_reviews()`
+  actually runs outside of tests — classify (or `--demo`) → route → draft/escalate → aggregate →
+  report, in one command
+- Escalation delivery: `src/aurapulse/escalation_delivery.py` appends each escalation as a JSON
+  line to a local file — zero-cost, no Slack/email integration (yet); see `docs/DESIGN.md`
 
 **Not done yet:**
-- Wire `orchestrator.process_reviews()` into a runnable script against real classified reviews —
-  it exists and is tested, but nothing currently invokes the full Hito 1 flow end-to-end outside
-  of tests and the fake-review demo
-- Any delivery mechanism for escalations (email/Slack/dashboard) — currently just returned as data
+- A real escalation delivery channel (email/Slack/dashboard) beyond the local JSONL log
 - Any orchestration framework — LangGraph is deliberately not introduced yet; see
   `docs/DESIGN.md` for when it would be justified over the current `if/elif` routing
 
@@ -115,11 +117,17 @@ routing.decide_route()                  pure if/elif, no LLM call, no I/O
         ▼                                                                    ▼
 orchestrator.process_reviews()  (dispatches every review above, collects the results)
         │
-        ▼
-aggregation.aggregate_reviews()          groups by business_id, flags inconsistencies
+        ├──────────────────────────────────────────────────────────────────┐
+        ▼                                                                  ▼
+aggregation.aggregate_reviews()          escalation_delivery.write_escalations()
+  groups by business_id,                   appends to data/escalations/escalations.jsonl
+  flags inconsistencies                    (zero-cost: local file, no Slack/email yet)
         │
         ▼
-reporting.format_full_report()           human-readable text (scripts/generate_report.py)
+reporting.format_full_report()           human-readable text
+        │
+        ▼
+scripts/run_pipeline.py                  the one command that runs all of the above
 ```
 
 `decide_route` is the project's concrete answer, so far, to "when does a graph orchestrator earn
@@ -149,7 +157,8 @@ AuraPulse/
 ├── tests/                  # pytest suite, one test_*.py per src/aurapulse/*.py module
 ├── data/
 │   ├── raw/                # Yelp Open Dataset goes here (gitignored, manual download)
-│   └── processed/          # Built review subsets / classified output (gitignored)
+│   ├── processed/          # Built review subsets / classified output (gitignored)
+│   └── escalations/        # escalations.jsonl, written by run_pipeline.py (gitignored)
 ├── docs/
 │   ├── DESIGN.md           # Architectural decision log, one entry per decision + trade-offs
 │   └── assets/AuraPulse_logo.png
@@ -212,12 +221,14 @@ python scripts/eval_draft_responses.py      # structural/policy checks on genera
 python scripts/eval_draft_quality.py        # human-validated LLM-judge quality eval for drafts
 python scripts/eval_severity_fake_reviews.py  # severity_flag accuracy on a balanced deterministic set
 python scripts/generate_report.py --demo    # print the aggregated report (no dataset or Ollama needed)
+python scripts/run_pipeline.py --demo       # full Hito 1 flow: route -> draft/escalate -> report (needs Ollama)
 ```
 
 `build_subset.py`, `eval_fake_reviews.py`, `validate_sentiment_proxy.py`,
-`validate_aspect_proxy.py`, `eval_draft_responses.py`, `eval_draft_quality.py`, and
-`eval_severity_fake_reviews.py` need the raw Yelp dataset and/or a running local Ollama server.
-`generate_report.py --demo` needs neither — it runs the same
+`validate_aspect_proxy.py`, `eval_draft_responses.py`, `eval_draft_quality.py`,
+`eval_severity_fake_reviews.py`, and `run_pipeline.py` (even in `--demo` mode — drafting always
+calls the local model) need the raw Yelp dataset and/or a running local Ollama server.
+`generate_report.py --demo` needs neither of those — it runs the same
 aggregation/reporting code against the project's own deterministic fake-review dataset
 ([`src/aurapulse/fake_reviews.py`](src/aurapulse/fake_reviews.py)), so the report format is
 checkable without any setup. Real output from that command, against the 8 fake reviews checked
@@ -291,8 +302,10 @@ truth conventions, what was tried and reverted and why — is logged with its tr
 - **Aspect extraction accuracy is moderate, not high.** 44% aspect-set exact match / 34%
   aspect+sentiment exact match against 100 hand-labeled reviews. Per-aspect precision/recall
   breakdown and what was tried is in `docs/DESIGN.md` — this is disclosed, not hidden.
-- **No delivery mechanism yet.** Drafts and escalations are returned as in-memory Pydantic
-  objects (`DraftResponse`, `EscalationFlag`) — no email, Slack, or dashboard integration.
+- **Escalation delivery is a local file, not a real channel.** `escalation_delivery.py` appends
+  to `data/escalations/escalations.jsonl` — no email, Slack, or dashboard integration yet. Drafts
+  aren't delivered anywhere at all (by design — a human reads `run_pipeline.py`'s stdout and
+  copies what they want to send; see CLAUDE.md's non-negotiable no-auto-publish rule).
 - **A multi-criteria LLM-judge prompt doesn't judge criteria independently.** Removing one
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
