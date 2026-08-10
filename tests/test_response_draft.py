@@ -13,8 +13,26 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from aurapulse.classifier import ClassificationError
-from aurapulse.response_draft import flag_for_escalation, generate_draft_response
-from aurapulse.schemas import Aspect, AspectMention, ReviewAnalysis, Sentiment
+from aurapulse.response_draft import (
+    _FEW_SHOT_EXAMPLES,
+    flag_for_escalation,
+    generate_draft_response,
+)
+from aurapulse.schemas import (
+    Aspect,
+    AspectMention,
+    DraftText,
+    ReviewAnalysis,
+    Sentiment,
+)
+
+_BANNED_BOILERPLATE_PHRASES = (
+    "we take this seriously",
+    "we take all feedback",
+    "we take all complaints",
+    "thank you for bringing this to our attention",
+    "thank you for your feedback",
+)
 
 
 def _analysis(**aspect_sentiments: Sentiment) -> ReviewAnalysis:
@@ -61,7 +79,7 @@ def test_generate_draft_response_includes_only_negative_aspects_in_prompt(mock_c
         "r1", "b1", "Food was great, service was slow.", _analysis(food=Sentiment.POSITIVE, service=Sentiment.NEGATIVE)
     )
 
-    user_content = mock_client.chat.call_args.kwargs["messages"][1]["content"]
+    user_content = mock_client.chat.call_args.kwargs["messages"][-1]["content"]
     assert "service" in user_content
     assert "food" not in user_content.split("criticized:")[1]  # positive aspect excluded from the steering hint
 
@@ -113,6 +131,39 @@ def test_generate_draft_response_emits_trace(mock_client_cls: MagicMock, caplog:
     traces = [json.loads(r.message) for r in caplog.records if r.message.startswith('{"event": "draft_generation"')]
     assert len(traces) == 1
     assert traces[0]["outcome"] == "success"
+
+
+# --- few-shot examples (2026-08-10 genericness fix, see docs/DESIGN.md) ---
+
+
+def test_few_shot_examples_are_schema_valid() -> None:
+    for _, example_draft in _FEW_SHOT_EXAMPLES:
+        DraftText.model_validate_json(example_draft.model_dump_json())
+
+
+def test_few_shot_examples_avoid_the_banned_boilerplate_phrases() -> None:
+    """Regression guard: the examples must model what they're teaching, not the failure mode.
+
+    Every one of the 14 drafts in the 2026-08-09 human-validated quality eval
+    read as generic, wrapped in phrases like "we take this seriously" -- the
+    few-shot answers must not reproduce that pattern themselves.
+    """
+    for _, example_draft in _FEW_SHOT_EXAMPLES:
+        lowered = example_draft.draft_text.lower()
+        for phrase in _BANNED_BOILERPLATE_PHRASES:
+            assert phrase not in lowered, f"{phrase!r} found in few-shot draft: {example_draft.draft_text!r}"
+
+
+@patch("aurapulse.response_draft.ollama.Client")
+def test_generate_draft_response_sends_few_shot_examples(mock_client_cls: MagicMock) -> None:
+    mock_client = mock_client_cls.return_value
+    mock_client.chat.return_value = _chat_response(_valid_draft_payload())
+
+    generate_draft_response("r1", "b1", "Too slow.", _analysis(wait_time=Sentiment.NEGATIVE))
+
+    sent_messages = mock_client.chat.call_args.kwargs["messages"]
+    assert len(sent_messages) == 2 + 2 * len(_FEW_SHOT_EXAMPLES)
+    assert "Too slow." in sent_messages[-1]["content"]
 
 
 # --- flag_for_escalation ---

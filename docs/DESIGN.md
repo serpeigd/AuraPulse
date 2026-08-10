@@ -2,6 +2,43 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Fixing the generic-draft finding — and a judge that didn't generalize to the fix
+
+Status: resolved (2026-08-10), with a documented limit on how far the judge's validation reaches.
+
+**Fix.** `response_draft.py`'s prompt now requires three explicit things per draft, in order: (1)
+name the concrete fact from the review, (2) acknowledge its specific impact, (3) name one concrete
+internal action tied to that complaint — plus an explicit ban on the boilerplate phrases every one
+of the 14 originally-judged drafts used ("we take this seriously," "thank you for your feedback,"
+etc.). Two new synthetic few-shot pairs demonstrate the pattern, written to avoid every banned
+phrase themselves. Re-ran `scripts/eval_draft_quality.py` against the same 14 candidates:
+`appropriate_tone` and `usable_with_minor_edits` held at 14/14 (no regression), confirming the
+earlier lesson about validating the whole prompt, not just the changed part.
+
+**The judge said `not_generic` was still 0/14 — but manual inspection and an explicit second human
+check both disagreed with it.** The new drafts are substantively different: e.g. `fake-004` now
+opens with "A 45-minute wait before anyone even took your order is too long" (the literal fact)
+and closes with "we're reviewing how tables were staffed and assigned that night" (a concrete
+action) — not the old templated "Dear valued customer... we take this seriously" pattern. The
+human reviewer confirmed the fix works. Working theory for the disagreement: the original
+human-validation pass (see the draft-quality eval entry below) only ever showed the judge
+phrase-level boilerplate drafts; it never validated the judge's calibration on this new draft
+*style* (an explicit fact → impact → action structure that, being consistently applied across all
+14, may itself read to the judge as a structural template even though the content is now
+specific). That's a different question than the one originally validated, and this eval's
+human-agreement check does not extend to it.
+
+**Decision:** trust the human read over the judge here, since the judge's `not_generic` calibration
+was validated against boilerplate-phrase genericness specifically, not against structural-template
+genericness — an untested generalization, not a re-confirmed one. Did not re-run a full 14-item
+human-validation pass a second time for this narrower question given the same-session evidence
+already gathered (spot-checked drafts + a direct human confirmation). Flagging as a real
+methodological limit for future draft-quality work: **a validated LLM-judge is only validated for
+the distribution of outputs it was validated against** — a large-enough prompt change to the
+generator can produce outputs outside that distribution, and the judge needs re-validating against
+the new distribution before being trusted on it again, exactly like a classifier eval needs a fresh
+sample when the input distribution shifts.
+
 ## Draft-quality eval: LLM-as-judge validated against a human, with a methodological surprise
 
 Status: resolved (2026-08-07) — 3/4 rubric criteria validated and trusted; the 4th kept but not trusted.
