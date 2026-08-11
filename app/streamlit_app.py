@@ -21,7 +21,11 @@ capability anywhere in this codebase.
 
 Run with:
     pip install -e ".[ui]"
-    streamlit run app/streamlit_app.py
+    python -m streamlit run app/streamlit_app.py
+
+(``python -m streamlit`` rather than the bare ``streamlit`` command --
+pip's install location for the console script isn't always on PATH,
+especially on Windows; see README.md's Usage section.)
 """
 
 from __future__ import annotations

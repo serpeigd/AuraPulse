@@ -219,6 +219,11 @@ Install [Ollama](https://ollama.com) and pull the model used by default:
 ollama pull llama3.1:8b
 ```
 
+Ollama's desktop install runs as a background service that auto-starts with your machine. If
+`ollama serve` prints `bind: address already in use` (Windows) / `address already in use` (macOS/
+Linux), that's not an error — it means the server is already up on port 11434. Skip straight to
+running a script; there's nothing to start.
+
 Download the [Yelp Open Dataset](https://www.yelp.com/dataset) manually (requires accepting
 Yelp's terms — not scriptable) and place it anywhere under `data/raw/`; the loader searches
 recursively for `yelp_academic_dataset_business.json` and `yelp_academic_dataset_review.json`.
@@ -259,7 +264,7 @@ python scripts/eval_draft_quality.py        # human-validated LLM-judge quality 
 python scripts/eval_severity_fake_reviews.py  # severity_flag accuracy on a balanced deterministic set
 python scripts/generate_report.py --demo    # print the aggregated report (no dataset or Ollama needed)
 python scripts/run_pipeline.py --demo       # full Hito 1 flow: route -> draft/escalate -> report (needs Ollama)
-streamlit run app/streamlit_app.py          # same flow, interactive UI with draft approve/reject (needs Ollama + `.[ui]`)
+python -m streamlit run app/streamlit_app.py  # same flow, interactive UI with draft approve/reject (needs Ollama + `.[ui]`)
 ```
 
 `build_subset.py`, `eval_fake_reviews.py`, `validate_sentiment_proxy.py`,
@@ -267,6 +272,11 @@ streamlit run app/streamlit_app.py          # same flow, interactive UI with dra
 `eval_severity_fake_reviews.py`, `run_pipeline.py`, and `streamlit_app.py` (even in demo mode —
 drafting always calls the local model) need the raw Yelp dataset and/or a running local Ollama
 server.
+
+**Windows note:** `streamlit run ...` (the bare command) can fail with `"streamlit" no se reconoce
+como un comando...` even right after `pip install -e ".[ui]"` — pip installed it to your Python's
+`Scripts` folder, which isn't always on `PATH`. `python -m streamlit run ...` (used above) sidesteps
+that entirely by not depending on `PATH` at all, and is the more portable form in general.
 `generate_report.py --demo` needs neither of those — it runs the same
 aggregation/reporting code against the project's own deterministic fake-review dataset
 ([`src/aurapulse/fake_reviews.py`](src/aurapulse/fake_reviews.py)), so the report format is
