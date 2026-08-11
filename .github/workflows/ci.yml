@@ -16,13 +16,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,ui]"
 
       - name: Run tests
         run: pytest -q
 
       - name: Lint
-        run: ruff check src/ tests/ scripts/
+        run: ruff check src/ tests/ scripts/ app/
 
       - name: Type check
-        run: mypy src/ scripts/ tests/
+        run: mypy src/ scripts/ tests/ app/

@@ -25,54 +25,21 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
-
 from aurapulse.aggregation import summarize_other_aspect_usage
 from aurapulse.escalation_delivery import DEFAULT_ESCALATIONS_PATH, write_escalations
-from aurapulse.fake_reviews import generate_fixed_dataset
 from aurapulse.orchestrator import Hito1Batch, process_reviews
+from aurapulse.pipeline_io import (
+    DEFAULT_INPUT_PATH,
+    DEFAULT_REVIEWS_PATH,
+    load_demo_data,
+    load_real_data,
+)
 from aurapulse.reporting import format_full_report
-from aurapulse.schemas import ReviewAnalysis
-
-DEFAULT_INPUT_PATH = Path("data/processed/classified_reviews.jsonl")
-DEFAULT_REVIEWS_PATH = Path("data/processed/review_subset.csv")
 
 # Windows consoles default to a non-UTF-8 codepage; draft/reasoning text can
 # contain characters like em dashes that would otherwise print as mojibake.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
-
-
-def _load_demo_data() -> tuple[list[ReviewAnalysis], dict[str, str]]:
-    """Deterministic fake reviews: known-correct ReviewAnalysis, no classification call needed."""
-    fake_reviews = generate_fixed_dataset()
-    analyses = [fr.expected for fr in fake_reviews]
-    review_texts = {fr.expected.review_id: fr.text for fr in fake_reviews}
-    return analyses, review_texts
-
-
-def _load_real_data(input_path: Path, reviews_path: Path) -> tuple[list[ReviewAnalysis], dict[str, str]]:
-    """Already-classified reviews (JSONL) + their raw text (CSV), joined on review_id.
-
-    Raises:
-        FileNotFoundError: if either file is missing, with a message
-            pointing at what step produces it.
-    """
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"{input_path} not found. This file is produced by classifying the review subset "
-            "(Hito 0 step 7) -- not built yet. Try `python scripts/run_pipeline.py --demo` "
-            "to see the full pipeline against the deterministic fake-review dataset instead."
-        )
-    if not reviews_path.exists():
-        raise FileNotFoundError(f"{reviews_path} not found. Run scripts/build_subset.py first.")
-
-    with input_path.open(encoding="utf-8") as f:
-        analyses = [ReviewAnalysis.model_validate_json(line) for line in f if line.strip()]
-
-    reviews_df = pd.read_csv(reviews_path, dtype={"review_id": str})
-    review_texts = dict(zip(reviews_df["review_id"], reviews_df["text"], strict=True))
-    return analyses, review_texts
 
 
 def _print_batch_summary(batch: Hito1Batch) -> None:
@@ -118,11 +85,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.demo:
-        analyses, review_texts = _load_demo_data()
+        analyses, review_texts = load_demo_data()
         print(f"[DEMO MODE] Using {len(analyses)} deterministic fake reviews, not real data.")
     else:
         try:
-            analyses, review_texts = _load_real_data(args.input, args.reviews)
+            analyses, review_texts = load_real_data(args.input, args.reviews)
         except FileNotFoundError as exc:
             print(f"ERROR: {exc}")
             return 1

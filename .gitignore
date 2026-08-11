@@ -27,7 +27,16 @@ data/processed/*
 data/escalations/*
 !data/escalations/.gitkeep
 
+# Draft approve/reject decisions: runtime output from app/streamlit_app.py, not code
+data/decisions/*
+!data/decisions/.gitkeep
+
 # OS / editor
 .DS_Store
 .vscode/
 .idea/
+
+# Claude Code: local session state, not project config. launch.json (how to
+# preview app/streamlit_app.py) is the only .claude/ file meant to be shared.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
