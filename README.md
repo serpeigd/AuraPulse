@@ -331,8 +331,8 @@ same report against it.
 
 ```bash
 pytest -q
-ruff check src/ tests/ scripts/
-mypy src/ scripts/ tests/
+ruff check src/ tests/ scripts/ app/
+mypy src/ scripts/ tests/ app/
 ```
 
 All three run in CI on every push/PR to `main` ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)); a PR only merges once all three are green (see `CLAUDE.md`).
