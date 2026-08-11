@@ -2,6 +2,57 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Streamlit demo UI + a results table, and what still doesn't justify LangGraph
+
+Status: resolved (2026-08-11).
+
+**Gap.** Every Hito 1 result so far only existed as terminal text (`run_pipeline.py`'s stdout) or
+scattered across `DESIGN.md` entries and past session summaries — nothing a reviewer could open and
+see working in under a minute, and no single place listing every eval number obtained across the
+project. Two independent gaps, one PR: a demo surface, and a results summary.
+
+**UI choice: Streamlit, not a custom web app.** The alternatives — a bespoke Flask/FastAPI page, or
+no UI at all (keep pushing people toward `run_pipeline.py`) — either add real web-framework surface
+area for a demo-only need, or leave the project's actual output invisible to anyone who won't run
+Ollama and read stdout. Streamlit renders a Python script as a page with essentially no web code,
+stays inside the zero-cost constraint (local process, no hosting), and the project already treats
+"no framework until it's earned" as policy — a plotting/demo library for a UI that has exactly one
+page is a smaller commitment than it might sound, not a precedent for adding frameworks generally.
+
+**Extracted `pipeline_io.py` out of `run_pipeline.py`.** The Streamlit app needs the exact same
+(demo vs. real data) loading logic `run_pipeline.py` already had, previously as private
+`_load_demo_data`/`_load_real_data` functions. Moved both into `src/aurapulse/pipeline_io.py` and
+had both callers import from there — the alternative (duplicate the loading logic in the UI) would
+have meant two places to keep in sync for something with zero UI-specific logic in it.
+
+**Approve/reject logging — the LangGraph trigger condition, made real instead of hypothetical.**
+Every prior entry in this file has described LangGraph's justification abstractly: "a
+reject/regenerate loop with persisted state." The UI now lets a human actually reject a draft, with
+an optional note, logged via `draft_decisions.record_draft_decision` (same
+append-one-JSON-line-per-record shape as `escalation_delivery.write_escalations`, kept as a second,
+separate small function rather than factored into a shared helper — matching this project's
+established "extract a helper at the third use, not the second" convention from
+`response_draft.py`'s `_emit_trace`). Deliberately scoped to logging only: nothing regenerates a
+rejected draft. Building that loop is real future work, not done here — but the trigger condition
+this project set for LangGraph is now something with recorded evidence behind it (real rejections,
+with real feedback text) instead of a design document describing a hypothetical.
+
+**Why the loop wasn't built now, given the trigger exists:** doing so would have meant either (a)
+a fake pause/resume cycle inside a single Streamlit rerun (not what LangGraph's checkpointing is
+for — no real justification for the framework yet), or (b) actually wiring `interrupt()`/state
+persistence for a single-user local demo, which is disproportionate before there's a second
+consumer of a rejection (e.g. a real regeneration policy, worth its own design pass on what
+"regenerate with feedback" should even instruct the model to do). Recording the decision now, at
+zero cost, is what turns "we'd introduce LangGraph if X happened" into "X happens routinely here,
+and the day someone wants the loop, the data to design it against already exists."
+
+**Results table.** Added a "Results" section to `README.md` consolidating every eval number
+obtained across Hito 0 and Hito 1 into one table with sample sizes and what each was validated
+against, rather than requiring a reader to reconstruct the numbers from this file's prose. Two
+criteria from the draft-quality eval (`addresses_specific_complaint`, `not_generic`) are explicitly
+named as excluded, with a pointer to why, rather than silently omitted — an omitted number reads as
+"not measured," which would misrepresent what's actually documented evidence of a real, known gap.
+
 ## End-to-end pipeline script + escalation delivery
 
 Status: resolved (2026-08-10).

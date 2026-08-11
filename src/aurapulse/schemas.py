@@ -158,6 +158,25 @@ class EscalationFlag(BaseModel):
     reason: str = Field(description="Human-readable explanation of why this review was escalated.")
 
 
+class DraftDecision(BaseModel):
+    """A human's approve/reject call on one generated draft reply.
+
+    Recorded from the Streamlit demo (``app/streamlit_app.py``) — the
+    first concrete evidence for docs/DESIGN.md's stated LangGraph trigger
+    condition (a reject/regenerate loop). This only records the decision;
+    there is no regeneration wired up from a rejection yet (see README's
+    "Not done yet"). Deliberately mirrors ``EscalationFlag``'s shape.
+    """
+
+    review_id: str
+    business_id: str
+    approved: bool
+    feedback: str | None = Field(
+        default=None,
+        description="Optional human note on why a draft was rejected -- future input to a regeneration loop.",
+    )
+
+
 class DraftQualityVerdict(BaseModel):
     """An LLM judge's assessment of one draft reply against four criteria -- three trusted, one not.
 

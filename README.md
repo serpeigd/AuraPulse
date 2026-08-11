@@ -75,11 +75,43 @@ This is a portfolio project, developed incrementally with documented design deci
   report, in one command
 - Escalation delivery: `src/aurapulse/escalation_delivery.py` appends each escalation as a JSON
   line to a local file — zero-cost, no Slack/email integration (yet); see `docs/DESIGN.md`
+- Streamlit demo UI (`app/streamlit_app.py`): runs the same `process_reviews()` flow interactively
+  — business reports, drafts with approve/reject buttons, escalations — instead of reading
+  `run_pipeline.py`'s stdout. Approve/reject decisions are logged (`draft_decisions.py`) but don't
+  regenerate anything yet; see `docs/DESIGN.md`'s LangGraph entry for why that's the next real
+  trigger for introducing an orchestration framework, not this UI itself
+- Consolidated results table (see "Results" below) — every eval number obtained so far in one place
 
 **Not done yet:**
 - A real escalation delivery channel (email/Slack/dashboard) beyond the local JSONL log
+- A reject → regenerate loop for drafts (the Streamlit UI records rejections; nothing consumes them
+  yet) — this is the concrete condition `docs/DESIGN.md` sets for when LangGraph would earn its
+  complexity, still open
 - Any orchestration framework — LangGraph is deliberately not introduced yet; see
   `docs/DESIGN.md` for when it would be justified over the current `if/elif` routing
+
+## Results
+
+Every number below carries its own denominator (see CLAUDE.md's "never report a metric without
+visible case count" rule) and links to the full breakdown of what was tried, what didn't work, and
+why in [`docs/DESIGN.md`](docs/DESIGN.md) — this table is a summary, not the evidence itself.
+
+| Metric | Result | Sample | Validated against |
+|---|---|---|---|
+| Sentiment accuracy (deterministic ground truth) | 100% | 8/8 fake reviews | Known-correct labels ([`fake_reviews.py`](src/aurapulse/fake_reviews.py)) |
+| Sentiment agreement (real reviews) | 85% | 51/60 | Yelp star-rating proxy, stratified sample |
+| Aspect-set exact match | 44% | 44/100 | 100 hand-labeled real reviews |
+| Aspect+sentiment exact match | 34% | 34/100 | Same 100 hand-labeled reviews |
+| Aspect classification failures | 0% | 0/100 | Same eval, after the `other_detail` normalization fix |
+| `severity_flag` accuracy (balanced set) | 100% | 16/16 (8 true + 8 near-miss) | Hand-designed genuine-vs-emotional-language cases |
+| Draft structural/policy compliance | 100% | 6/6 negative fake reviews | Hard constraints: word limit, no promised remedy, no false fix claim |
+| Draft `appropriate_tone` (LLM-judge, human-validated) | 100% | 14/14 | Independent human reviewer |
+| Draft `usable_with_minor_edits` (LLM-judge, human-validated) | 100% | 14/14 | Independent human reviewer |
+
+**Explicitly not in this table:** the judge's `addresses_specific_complaint` and `not_generic`
+criteria — both have documented human disagreement and are excluded from the trusted report; see
+`docs/DESIGN.md`'s draft-quality-eval and genericness-fix entries for exactly why a number here
+would be misleading rather than informative.
 
 ## Why this project exists
 
@@ -146,7 +178,9 @@ introduced). LangGraph is deliberately not used.
 - **pytest**, **ruff**, **mypy** for tests, linting, and type checking — all three run in CI
   ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) and are required to be green before
   a PR merges (see `CLAUDE.md`)
-- No web framework, no database, no orchestration framework — this is a CLI/script pipeline
+- **[Streamlit](https://streamlit.io)** (optional `[ui]` extra) for an interactive demo of the
+  pipeline — the only UI layer in the project; everything else is a CLI script
+- No database, no orchestration framework — this is a CLI/script pipeline plus one thin demo UI
 
 ## Folder structure
 
@@ -154,11 +188,13 @@ introduced). LangGraph is deliberately not used.
 AuraPulse/
 ├── src/aurapulse/          # Library code: schemas, classifier, routing, aggregation, reporting...
 ├── scripts/                # CLI entry points — one script per pipeline step or offline eval
+├── app/                    # Streamlit demo UI (streamlit_app.py) — interactive view of the pipeline
 ├── tests/                  # pytest suite, one test_*.py per src/aurapulse/*.py module
 ├── data/
 │   ├── raw/                # Yelp Open Dataset goes here (gitignored, manual download)
 │   ├── processed/          # Built review subsets / classified output (gitignored)
-│   └── escalations/        # escalations.jsonl, written by run_pipeline.py (gitignored)
+│   ├── escalations/        # escalations.jsonl, written by run_pipeline.py (gitignored)
+│   └── decisions/          # draft_decisions.jsonl, written by app/streamlit_app.py (gitignored)
 ├── docs/
 │   ├── DESIGN.md           # Architectural decision log, one entry per decision + trade-offs
 │   └── assets/AuraPulse_logo.png
@@ -174,6 +210,7 @@ AuraPulse/
 python -m venv .venv
 source .venv/Scripts/activate   # .venv\Scripts\activate.bat on Windows cmd.exe
 pip install -e ".[dev]"
+pip install -e ".[ui]"   # optional, only needed for the Streamlit demo (app/streamlit_app.py)
 ```
 
 Install [Ollama](https://ollama.com) and pull the model used by default:
@@ -222,12 +259,14 @@ python scripts/eval_draft_quality.py        # human-validated LLM-judge quality 
 python scripts/eval_severity_fake_reviews.py  # severity_flag accuracy on a balanced deterministic set
 python scripts/generate_report.py --demo    # print the aggregated report (no dataset or Ollama needed)
 python scripts/run_pipeline.py --demo       # full Hito 1 flow: route -> draft/escalate -> report (needs Ollama)
+streamlit run app/streamlit_app.py          # same flow, interactive UI with draft approve/reject (needs Ollama + `.[ui]`)
 ```
 
 `build_subset.py`, `eval_fake_reviews.py`, `validate_sentiment_proxy.py`,
 `validate_aspect_proxy.py`, `eval_draft_responses.py`, `eval_draft_quality.py`,
-`eval_severity_fake_reviews.py`, and `run_pipeline.py` (even in `--demo` mode — drafting always
-calls the local model) need the raw Yelp dataset and/or a running local Ollama server.
+`eval_severity_fake_reviews.py`, `run_pipeline.py`, and `streamlit_app.py` (even in demo mode —
+drafting always calls the local model) need the raw Yelp dataset and/or a running local Ollama
+server.
 `generate_report.py --demo` needs neither of those — it runs the same
 aggregation/reporting code against the project's own deterministic fake-review dataset
 ([`src/aurapulse/fake_reviews.py`](src/aurapulse/fake_reviews.py)), so the report format is
@@ -304,8 +343,13 @@ truth conventions, what was tried and reverted and why — is logged with its tr
   breakdown and what was tried is in `docs/DESIGN.md` — this is disclosed, not hidden.
 - **Escalation delivery is a local file, not a real channel.** `escalation_delivery.py` appends
   to `data/escalations/escalations.jsonl` — no email, Slack, or dashboard integration yet. Drafts
-  aren't delivered anywhere at all (by design — a human reads `run_pipeline.py`'s stdout and
-  copies what they want to send; see CLAUDE.md's non-negotiable no-auto-publish rule).
+  aren't delivered anywhere at all (by design — a human reads `run_pipeline.py`'s stdout, or the
+  Streamlit UI, and copies what they want to send; see CLAUDE.md's non-negotiable no-auto-publish
+  rule).
+- **Draft rejections aren't wired to a regeneration loop.** `app/streamlit_app.py` lets a human
+  approve or reject a draft and logs the decision (`data/decisions/draft_decisions.jsonl`), but
+  nothing regenerates a rejected draft yet — this is the concrete condition `docs/DESIGN.md` sets
+  for when LangGraph would earn its complexity over the current `if/elif`, and it's still open.
 - **A multi-criteria LLM-judge prompt doesn't judge criteria independently.** Removing one
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
@@ -345,8 +389,11 @@ limitation (see `CLAUDE.md`).
 **Does this use LangGraph or another agent-orchestration framework?**
 Not yet, and not by default. Routing between the 3 known outcomes (aggregate / draft / escalate)
 is a plain `if/elif` function ([`src/aurapulse/routing.py`](src/aurapulse/routing.py)) — see
-`docs/DESIGN.md` for the reasoning and what would make a graph orchestrator worth the added
-complexity.
+`docs/DESIGN.md` for the reasoning. The concrete trigger this project has set for introducing one:
+a reject → regenerate loop with persisted, pausable state — e.g. a human rejecting a draft in
+`app/streamlit_app.py` and the system regenerating it with that feedback. The UI now records
+rejections, but nothing consumes them yet, so that trigger condition exists but hasn't been acted
+on.
 
 **Where's the actual review data?**
 Not in this repo. Download the [Yelp Open Dataset](https://www.yelp.com/dataset) yourself
