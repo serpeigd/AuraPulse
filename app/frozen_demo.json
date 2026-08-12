@@ -153,13 +153,13 @@
     {
       "review_id": "fake-002",
       "business_id": "biz-alpha",
-      "draft_text": "We're sorry to hear that your meal didn't meet your expectations - the underseasoned flavors and overcooked texture are not what we aim for. We're also disappointed in how our staff interacted with you; ignoring customers is unacceptable. And on top of that, a dirty bathroom and sticky tables are not clean enough for anyone. We're reviewing our kitchen procedures to catch any issues before food leaves the kitchen, re-training our staff on customer service basics, and doing a deep clean of the bathrooms this week. — The team",
+      "draft_text": "We're sorry to hear that your meal didn't meet your expectations - the underseasoned flavors and overcooked texture are not what we aim for. We're also disappointed in how our staff interacted with you; ignoring customers is unacceptable. And on top of that, the sticky tables and dirty bathroom were a poor reflection of our standards. We're reviewing our kitchen procedures to catch any issues before they leave the kitchen, re-training our staff on customer service basics, and doing a deep clean of the dining area and bathrooms this week. — The team",
       "review_text": "The food was bland and arrived overcooked. The staff was rude and ignored us for most of the meal. The tables were sticky and the bathroom was dirty."
     },
     {
       "review_id": "fake-004",
       "business_id": "biz-beta",
-      "draft_text": "A 45-minute wait before anyone even took your order is too long, especially when you were looking forward to enjoying a great meal. We're reviewing how tables were staffed and assigned that night to catch this kind of delay before it happens again. — The team",
+      "draft_text": "A 45-minute wait before anyone even took your order is too long, especially since you were looking forward to enjoying a great meal. We're reviewing how tables were staffed and assigned that night to catch this kind of delay before it happens again. — The team",
       "review_text": "The food was delicious and beautifully presented. We waited over 45 minutes just to get our order taken."
     },
     {
@@ -177,7 +177,7 @@
     {
       "review_id": "fake-007",
       "business_id": "biz-gamma",
-      "draft_text": "We're sorry you had trouble with our parking lot, which can be a challenge for some visitors. We're looking into ways to improve traffic flow in that area. — The team",
+      "draft_text": "We're sorry you had trouble with our parking lot, which can be a challenge for some visitors. We're looking at ways to improve traffic flow in and out of the lot during peak hours. — The team",
       "review_text": "Service was okay, nothing memorable either way. The parking lot was a nightmare and we almost gave up before even sitting down."
     }
   ],
@@ -195,5 +195,175 @@
     "other_details": [
       "parking availability"
     ]
-  }
+  },
+  "reviews": [
+    {
+      "review_id": "fake-001",
+      "business_id": "biz-alpha",
+      "review_text": "The food was delicious and beautifully presented. Our waiter was attentive and friendly all night. The atmosphere was cozy and the music was just right.",
+      "overall_sentiment": "positive",
+      "aspects": [
+        {
+          "aspect": "food",
+          "sentiment": "positive"
+        },
+        {
+          "aspect": "service",
+          "sentiment": "positive"
+        },
+        {
+          "aspect": "ambience",
+          "sentiment": "positive"
+        }
+      ],
+      "severity_flag": false,
+      "route": "aggregate",
+      "draft_text": null,
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-002",
+      "business_id": "biz-alpha",
+      "review_text": "The food was bland and arrived overcooked. The staff was rude and ignored us for most of the meal. The tables were sticky and the bathroom was dirty.",
+      "overall_sentiment": "negative",
+      "aspects": [
+        {
+          "aspect": "food",
+          "sentiment": "negative"
+        },
+        {
+          "aspect": "service",
+          "sentiment": "negative"
+        },
+        {
+          "aspect": "cleanliness",
+          "sentiment": "negative"
+        }
+      ],
+      "severity_flag": false,
+      "route": "draft_response",
+      "draft_text": "We're sorry to hear that your meal didn't meet your expectations - the underseasoned flavors and overcooked texture are not what we aim for. We're also disappointed in how our staff interacted with you; ignoring customers is unacceptable. And on top of that, the sticky tables and dirty bathroom were a poor reflection of our standards. We're reviewing our kitchen procedures to catch any issues before they leave the kitchen, re-training our staff on customer service basics, and doing a deep clean of the dining area and bathrooms this week. — The team",
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-003",
+      "business_id": "biz-alpha",
+      "review_text": "The food was fine, nothing special. Prices were about what you'd expect for this kind of place.",
+      "overall_sentiment": "neutral",
+      "aspects": [
+        {
+          "aspect": "food",
+          "sentiment": "neutral"
+        },
+        {
+          "aspect": "price",
+          "sentiment": "neutral"
+        }
+      ],
+      "severity_flag": false,
+      "route": "aggregate",
+      "draft_text": null,
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-004",
+      "business_id": "biz-beta",
+      "review_text": "The food was delicious and beautifully presented. We waited over 45 minutes just to get our order taken.",
+      "overall_sentiment": "negative",
+      "aspects": [
+        {
+          "aspect": "food",
+          "sentiment": "positive"
+        },
+        {
+          "aspect": "wait_time",
+          "sentiment": "negative"
+        }
+      ],
+      "severity_flag": false,
+      "route": "draft_response",
+      "draft_text": "A 45-minute wait before anyone even took your order is too long, especially since you were looking forward to enjoying a great meal. We're reviewing how tables were staffed and assigned that night to catch this kind of delay before it happens again. — The team",
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-005",
+      "business_id": "biz-beta",
+      "review_text": "Great value for the amount of food we got. The tables were sticky and the bathroom was dirty.",
+      "overall_sentiment": "negative",
+      "aspects": [
+        {
+          "aspect": "price",
+          "sentiment": "positive"
+        },
+        {
+          "aspect": "cleanliness",
+          "sentiment": "negative"
+        }
+      ],
+      "severity_flag": false,
+      "route": "draft_response",
+      "draft_text": "We're sorry you had to deal with sticky tables and a dirty bathroom, which took away from your overall experience despite enjoying the quantity of food. We're reviewing our cleaning protocols to make sure we're meeting our standards in these areas. — The team",
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-006",
+      "business_id": "biz-gamma",
+      "review_text": "We were seated immediately and the food came out fast. It was way too loud and cramped to hold a conversation.",
+      "overall_sentiment": "negative",
+      "aspects": [
+        {
+          "aspect": "wait_time",
+          "sentiment": "positive"
+        },
+        {
+          "aspect": "ambience",
+          "sentiment": "negative"
+        }
+      ],
+      "severity_flag": false,
+      "route": "draft_response",
+      "draft_text": "The noise level and crowded space made it hard for you to have a conversation, which is a big part of why people come here in the first place. We're looking at ways to improve our acoustics and seating layout to make the atmosphere more conducive to conversation. — The team",
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-007",
+      "business_id": "biz-gamma",
+      "review_text": "Service was okay, nothing memorable either way. The parking lot was a nightmare and we almost gave up before even sitting down.",
+      "overall_sentiment": "negative",
+      "aspects": [
+        {
+          "aspect": "service",
+          "sentiment": "neutral"
+        },
+        {
+          "aspect": "other",
+          "sentiment": "negative"
+        }
+      ],
+      "severity_flag": false,
+      "route": "draft_response",
+      "draft_text": "We're sorry you had trouble with our parking lot, which can be a challenge for some visitors. We're looking at ways to improve traffic flow in and out of the lot during peak hours. — The team",
+      "escalation_reason": null
+    },
+    {
+      "review_id": "fake-008",
+      "business_id": "biz-gamma",
+      "review_text": "The tables were sticky and the bathroom was dirty. The staff was rude and ignored us for most of the meal.",
+      "overall_sentiment": "negative",
+      "aspects": [
+        {
+          "aspect": "cleanliness",
+          "sentiment": "negative"
+        },
+        {
+          "aspect": "service",
+          "sentiment": "negative"
+        }
+      ],
+      "severity_flag": true,
+      "route": "escalate",
+      "draft_text": null,
+      "escalation_reason": "Flagged as severe; negative aspects: cleanliness, service"
+    }
+  ]
 }
