@@ -1,0 +1,199 @@
+{
+  "business_reports": [
+    {
+      "business_id": "biz-alpha",
+      "review_count": 3,
+      "sentiment_counts": {
+        "positive": 1,
+        "neutral": 1,
+        "negative": 1
+      },
+      "aspect_summaries": [
+        {
+          "aspect": "food",
+          "total_mentions": 3,
+          "positive_count": 1,
+          "neutral_count": 1,
+          "negative_count": 1,
+          "negative_share": 0.3333333333333333
+        },
+        {
+          "aspect": "service",
+          "total_mentions": 2,
+          "positive_count": 1,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 0.5
+        },
+        {
+          "aspect": "ambience",
+          "total_mentions": 1,
+          "positive_count": 1,
+          "neutral_count": 0,
+          "negative_count": 0,
+          "negative_share": 0.0
+        },
+        {
+          "aspect": "cleanliness",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 1.0
+        },
+        {
+          "aspect": "price",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 1,
+          "negative_count": 0,
+          "negative_share": 0.0
+        }
+      ],
+      "inconsistent_aspects": []
+    },
+    {
+      "business_id": "biz-beta",
+      "review_count": 2,
+      "sentiment_counts": {
+        "positive": 0,
+        "neutral": 0,
+        "negative": 2
+      },
+      "aspect_summaries": [
+        {
+          "aspect": "food",
+          "total_mentions": 1,
+          "positive_count": 1,
+          "neutral_count": 0,
+          "negative_count": 0,
+          "negative_share": 0.0
+        },
+        {
+          "aspect": "wait_time",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 1.0
+        },
+        {
+          "aspect": "price",
+          "total_mentions": 1,
+          "positive_count": 1,
+          "neutral_count": 0,
+          "negative_count": 0,
+          "negative_share": 0.0
+        },
+        {
+          "aspect": "cleanliness",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 1.0
+        }
+      ],
+      "inconsistent_aspects": []
+    },
+    {
+      "business_id": "biz-gamma",
+      "review_count": 3,
+      "sentiment_counts": {
+        "positive": 0,
+        "neutral": 0,
+        "negative": 3
+      },
+      "aspect_summaries": [
+        {
+          "aspect": "service",
+          "total_mentions": 2,
+          "positive_count": 0,
+          "neutral_count": 1,
+          "negative_count": 1,
+          "negative_share": 0.5
+        },
+        {
+          "aspect": "wait_time",
+          "total_mentions": 1,
+          "positive_count": 1,
+          "neutral_count": 0,
+          "negative_count": 0,
+          "negative_share": 0.0
+        },
+        {
+          "aspect": "ambience",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 1.0
+        },
+        {
+          "aspect": "other",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 1.0
+        },
+        {
+          "aspect": "cleanliness",
+          "total_mentions": 1,
+          "positive_count": 0,
+          "neutral_count": 0,
+          "negative_count": 1,
+          "negative_share": 1.0
+        }
+      ],
+      "inconsistent_aspects": []
+    }
+  ],
+  "drafts": [
+    {
+      "review_id": "fake-002",
+      "business_id": "biz-alpha",
+      "draft_text": "We're sorry to hear that your meal didn't meet your expectations - the underseasoned flavors and overcooked texture are not what we aim for. We're also disappointed in how our staff interacted with you; ignoring customers is unacceptable. And on top of that, a dirty bathroom and sticky tables are not clean enough for anyone. We're reviewing our kitchen procedures to catch any issues before food leaves the kitchen, re-training our staff on customer service basics, and doing a deep clean of the bathrooms this week. — The team",
+      "review_text": "The food was bland and arrived overcooked. The staff was rude and ignored us for most of the meal. The tables were sticky and the bathroom was dirty."
+    },
+    {
+      "review_id": "fake-004",
+      "business_id": "biz-beta",
+      "draft_text": "A 45-minute wait before anyone even took your order is too long, especially when you were looking forward to enjoying a great meal. We're reviewing how tables were staffed and assigned that night to catch this kind of delay before it happens again. — The team",
+      "review_text": "The food was delicious and beautifully presented. We waited over 45 minutes just to get our order taken."
+    },
+    {
+      "review_id": "fake-005",
+      "business_id": "biz-beta",
+      "draft_text": "We're sorry you had to deal with sticky tables and a dirty bathroom, which took away from your overall experience despite enjoying the quantity of food. We're reviewing our cleaning protocols to make sure we're meeting our standards in these areas. — The team",
+      "review_text": "Great value for the amount of food we got. The tables were sticky and the bathroom was dirty."
+    },
+    {
+      "review_id": "fake-006",
+      "business_id": "biz-gamma",
+      "draft_text": "The noise level and crowded space made it hard for you to have a conversation, which is a big part of why people come here in the first place. We're looking at ways to improve our acoustics and seating layout to make the atmosphere more conducive to conversation. — The team",
+      "review_text": "We were seated immediately and the food came out fast. It was way too loud and cramped to hold a conversation."
+    },
+    {
+      "review_id": "fake-007",
+      "business_id": "biz-gamma",
+      "draft_text": "We're sorry you had trouble with our parking lot, which can be a challenge for some visitors. We're looking into ways to improve traffic flow in that area. — The team",
+      "review_text": "Service was okay, nothing memorable either way. The parking lot was a nightmare and we almost gave up before even sitting down."
+    }
+  ],
+  "escalations": [
+    {
+      "review_id": "fake-008",
+      "business_id": "biz-gamma",
+      "reason": "Flagged as severe; negative aspects: cleanliness, service"
+    }
+  ],
+  "other_aspect_summary": {
+    "total_mentions": 18,
+    "other_mentions": 1,
+    "other_share": 0.05555555555555555,
+    "other_details": [
+      "parking availability"
+    ]
+  }
+}
