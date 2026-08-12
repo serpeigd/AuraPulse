@@ -121,6 +121,30 @@ def test_generate_draft_response_fails_fast_on_connection_error(mock_client_cls:
 
 
 @patch("aurapulse.response_draft.ollama.Client")
+def test_generate_draft_response_folds_feedback_into_the_prompt_when_given(mock_client_cls: MagicMock) -> None:
+    mock_client = mock_client_cls.return_value
+    mock_client.chat.return_value = _chat_response(_valid_draft_payload())
+
+    generate_draft_response(
+        "r1", "b1", "Too slow.", _analysis(wait_time=Sentiment.NEGATIVE), feedback="too generic, be specific"
+    )
+
+    user_content = mock_client.chat.call_args.kwargs["messages"][-1]["content"]
+    assert "too generic, be specific" in user_content
+
+
+@patch("aurapulse.response_draft.ollama.Client")
+def test_generate_draft_response_omits_feedback_note_when_none_given(mock_client_cls: MagicMock) -> None:
+    mock_client = mock_client_cls.return_value
+    mock_client.chat.return_value = _chat_response(_valid_draft_payload())
+
+    generate_draft_response("r1", "b1", "Too slow.", _analysis(wait_time=Sentiment.NEGATIVE))
+
+    user_content = mock_client.chat.call_args.kwargs["messages"][-1]["content"]
+    assert "rejected your previous draft" not in user_content
+
+
+@patch("aurapulse.response_draft.ollama.Client")
 def test_generate_draft_response_emits_trace(mock_client_cls: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
     mock_client = mock_client_cls.return_value
     mock_client.chat.return_value = _chat_response(_valid_draft_payload())

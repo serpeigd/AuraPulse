@@ -2,6 +2,66 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## The reject/regenerate loop: this project's first (and only) LangGraph use
+
+Status: resolved (2026-08-12).
+
+**Context.** The previous entry below shipped draft approve/reject *logging* from
+`app/streamlit_app.py`, explicitly scoped to not regenerate anything — the point was to turn
+this project's long-standing, abstractly-described LangGraph trigger condition ("a
+reject/regenerate loop with persisted, pausable state") into something with real recorded
+evidence behind it before building it. That evidence existed after one session of real use; this
+entry builds the loop itself.
+
+**Design, proposed and approved before implementation** (per CLAUDE.md's "propose 2-3 options,
+don't decide architecture unilaterally" rule):
+- **Two nodes.** `generate_draft` calls `response_draft.generate_draft_response` (now accepting
+  an optional `feedback` argument); `human_review` calls LangGraph's `interrupt()`, which pauses
+  the graph until a caller resumes it with `Command(resume=...)`. A conditional edge routes back
+  to `generate_draft` on rejection (if attempts remain) or to `END` otherwise.
+- **Feedback handling — the "simple" option, chosen over threading full draft history.** Two
+  designs were on the table: (1) each regeneration call only sees the most recent rejection note,
+  folded into that one call's prompt; (2) also pass the rejected draft itself as explicit
+  negative context ("don't repeat this"). Chose (1) — cheaper, matches the project's "start
+  simple, complicate only with evidence" pattern already used for `severity_flag` and aspect
+  precision. Revisit with (2) only if an eval shows the model repeating the same mistake across
+  attempts, which hasn't been measured yet.
+- **Bounded at `MAX_ATTEMPTS = 3`.** After 3 drafts, a rejection ends the loop in
+  `needs_human_rewrite` instead of calling the model indefinitely. Chosen as a round number with
+  no tuning yet — revisit if real usage shows 3 is consistently too few or too many.
+- **`MemorySaver`** (LangGraph's in-process checkpointer) — zero-cost, no external store, but
+  state doesn't survive a process restart. Accepted for a local single-user demo; a real
+  deployment needing that durability would swap in a persistent checkpointer, a small, contained
+  change since `draft_graph.py` only depends on the `BaseCheckpointSaver` interface.
+
+**Why this and not routing.** `routing.decide_route` is untouched — still a 4-line `if/elif`, still
+without a framework. The distinguishing factor isn't "is an LLM involved" (drafting already called
+one) — it's **state that must survive a pause of unknown length**. A human can reject a draft,
+close the browser, and come back tomorrow to reject it again; the graph has to still be sitting at
+that exact point, waiting. A plain Python function call can't do that across process boundaries;
+LangGraph's `interrupt()`/checkpointer pair is built for exactly this. This is the answer to the
+question the project has been building toward since Hito 1 kickoff: not "would LangGraph ever be
+useful here" (almost anything can technically use a graph framework) but "is there a concrete
+mechanism (persisted pause/resume) that a plain pipeline structurally cannot provide." Routing
+still doesn't have one; this loop does.
+
+**Why `app/streamlit_app.py` stopped reusing `orchestrator.process_reviews()` for drafts.**
+`process_reviews()` eagerly generates one draft per `DRAFT_RESPONSE` review in a single pass —
+reusing it and *also* running the graph's own first `generate_draft` node would mean generating
+two drafts (two Ollama calls) for the same review before a human ever saw the first one. Instead
+the Streamlit app now does its own thin per-review routing loop, calling `routing.decide_route`,
+`response_draft.flag_for_escalation`, and `aggregation.aggregate_reviews` directly — all
+pure/deterministic, none of them the part that changed — and drives `DRAFT_RESPONSE` reviews
+through `draft_graph.py` instead. `scripts/run_pipeline.py` (the non-interactive script) is
+untouched and still calls `process_reviews()`, since the reject/regenerate loop only makes sense
+with a human present to click a button; a script has no one to ask.
+
+**Verified live** against a running Ollama server (not just mocked unit tests): ran the demo
+dataset, rejected `fake-002`'s first draft with real feedback ("too apologetic, mention the exact
+wait was not the issue here"), confirmed a genuinely different second draft was generated and the
+UI moved to "draft 2/3", approved it, and confirmed both the rejection and the approval were each
+appended to `data/decisions/draft_decisions.jsonl` — the full loop, not just its unit tests.
+
 ## Streamlit demo UI + a results table, and what still doesn't justify LangGraph
 
 Status: resolved (2026-08-11).

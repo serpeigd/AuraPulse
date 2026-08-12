@@ -75,20 +75,22 @@ This is a portfolio project, developed incrementally with documented design deci
   report, in one command
 - Escalation delivery: `src/aurapulse/escalation_delivery.py` appends each escalation as a JSON
   line to a local file — zero-cost, no Slack/email integration (yet); see `docs/DESIGN.md`
-- Streamlit demo UI (`app/streamlit_app.py`): runs the same `process_reviews()` flow interactively
-  — business reports, drafts with approve/reject buttons, escalations — instead of reading
-  `run_pipeline.py`'s stdout. Approve/reject decisions are logged (`draft_decisions.py`) but don't
-  regenerate anything yet; see `docs/DESIGN.md`'s LangGraph entry for why that's the next real
-  trigger for introducing an orchestration framework, not this UI itself
+- Streamlit demo UI (`app/streamlit_app.py`): interactive view of routing/aggregation/escalation
+  — business reports, escalations, and (unlike a plain report) drafts a human can actually act on
+- Reject → regenerate loop for drafts (`src/aurapulse/draft_graph.py`): a human rejecting a draft in
+  the Streamlit UI regenerates it with their feedback, up to 3 attempts, before falling back to
+  "needs a human-written reply." This is this project's **first and only use of LangGraph** —
+  every decision leading up to it kept routing as a plain `if/elif`; this loop's pause/resume
+  requirement (a human can close the browser mid-review and come back) is the concrete trigger
+  condition `docs/DESIGN.md` had been describing abstractly since Hito 1 kicked off. See
+  `docs/DESIGN.md` for the full design and why routing itself still doesn't need it
 - Consolidated results table (see "Results" below) — every eval number obtained so far in one place
 
 **Not done yet:**
 - A real escalation delivery channel (email/Slack/dashboard) beyond the local JSONL log
-- A reject → regenerate loop for drafts (the Streamlit UI records rejections; nothing consumes them
-  yet) — this is the concrete condition `docs/DESIGN.md` sets for when LangGraph would earn its
-  complexity, still open
-- Any orchestration framework — LangGraph is deliberately not introduced yet; see
-  `docs/DESIGN.md` for when it would be justified over the current `if/elif` routing
+- A cloud-hosted demo link (Streamlit Cloud) — the app only runs locally today; a cloud deploy needs
+  a "replay" mode since the deployed container can't reach a local Ollama server, see `docs/DESIGN.md`
+- The `aspect` enum's `other` category — still the weakest performer, unrevisited since Hito 0
 
 ## Results
 
@@ -162,10 +164,37 @@ reporting.format_full_report()           human-readable text
 scripts/run_pipeline.py                  the one command that runs all of the above
 ```
 
-`decide_route` is the project's concrete answer, so far, to "when does a graph orchestrator earn
-its complexity": with 3 known routes it stays a 4-line `if/elif` (Option B in
-[`docs/DESIGN.md`](docs/DESIGN.md) — decision kept separate from execution, but no framework
-introduced). LangGraph is deliberately not used.
+`decide_route` is the project's concrete answer to "when does a graph orchestrator earn its
+complexity" for *routing*: with 3 known routes it stays a 4-line `if/elif` (Option B in
+[`docs/DESIGN.md`](docs/DESIGN.md) — decision kept separate from execution, no framework needed).
+Routing here is unchanged and still doesn't use LangGraph.
+
+A *different* piece of Hito 1 does: the DRAFT_RESPONSE path, when driven from
+`app/streamlit_app.py`, runs through `draft_graph.py`'s reject/regenerate loop instead of a single
+`generate_draft_response()` call:
+
+```
+routing.decide_route() → DRAFT_RESPONSE
+        │
+        ▼
+draft_graph.build_draft_graph()          LangGraph state machine, MemorySaver checkpointer
+        │
+        ▼
+generate_draft ──► human_review (interrupt() — pauses here until a human responds)
+    ▲                    │
+    │        reject, attempts remain
+    └────────────────────┘
+                         │
+              approve, or attempts exhausted
+                         ▼
+                        END                 outcome: approved | needs_human_rewrite
+```
+
+Why this needed LangGraph and routing doesn't: a human can reject a draft, close the browser, and
+come back the next day to reject it again — the graph's state has to survive across Streamlit
+reruns and pause indefinitely between clicks, which a plain Python loop can't do. `MemorySaver` is
+in-process only (no persistence past a process restart — an accepted limit for a local single-user
+demo); see `docs/DESIGN.md` for the full design and trade-offs.
 
 ## Tech stack
 
@@ -180,7 +209,11 @@ introduced). LangGraph is deliberately not used.
   a PR merges (see `CLAUDE.md`)
 - **[Streamlit](https://streamlit.io)** (optional `[ui]` extra) for an interactive demo of the
   pipeline — the only UI layer in the project; everything else is a CLI script
-- No database, no orchestration framework — this is a CLI/script pipeline plus one thin demo UI
+- **[LangGraph](https://langchain-ai.github.io/langgraph/)** (optional `[ui]` extra) — this
+  project's one and only orchestration-framework use, scoped to the draft reject/regenerate loop
+  (`src/aurapulse/draft_graph.py`). Routing itself is still a plain `if/elif`; see "Architecture"
+  above and `docs/DESIGN.md` for why this specific loop earned the framework and routing didn't
+- No database — this is a CLI/script pipeline plus one thin demo UI
 
 ## Folder structure
 
@@ -264,7 +297,7 @@ python scripts/eval_draft_quality.py        # human-validated LLM-judge quality 
 python scripts/eval_severity_fake_reviews.py  # severity_flag accuracy on a balanced deterministic set
 python scripts/generate_report.py --demo    # print the aggregated report (no dataset or Ollama needed)
 python scripts/run_pipeline.py --demo       # full Hito 1 flow: route -> draft/escalate -> report (needs Ollama)
-python -m streamlit run app/streamlit_app.py  # same flow, interactive UI with draft approve/reject (needs Ollama + `.[ui]`)
+python -m streamlit run app/streamlit_app.py  # same flow, drafts with reject-and-regenerate (needs Ollama + `.[ui]`)
 ```
 
 `build_subset.py`, `eval_fake_reviews.py`, `validate_sentiment_proxy.py`,
@@ -356,10 +389,12 @@ truth conventions, what was tried and reverted and why — is logged with its tr
   aren't delivered anywhere at all (by design — a human reads `run_pipeline.py`'s stdout, or the
   Streamlit UI, and copies what they want to send; see CLAUDE.md's non-negotiable no-auto-publish
   rule).
-- **Draft rejections aren't wired to a regeneration loop.** `app/streamlit_app.py` lets a human
-  approve or reject a draft and logs the decision (`data/decisions/draft_decisions.jsonl`), but
-  nothing regenerates a rejected draft yet — this is the concrete condition `docs/DESIGN.md` sets
-  for when LangGraph would earn its complexity over the current `if/elif`, and it's still open.
+- **The draft reject/regenerate loop's checkpointer is in-process only.** `draft_graph.py` uses
+  LangGraph's `MemorySaver` — zero-cost, no external store, but state is lost on a server restart
+  mid-review (the human would have to click Run pipeline again). Fine for a local single-user demo;
+  a real deployment would need a persistent checkpointer.
+- **The Streamlit app isn't deployed anywhere.** It only runs locally (`python -m streamlit run
+  app/streamlit_app.py`) — no public link yet; see "Not done yet" above.
 - **A multi-criteria LLM-judge prompt doesn't judge criteria independently.** Removing one
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
@@ -397,13 +432,16 @@ No, and it never will. `response_draft.generate_draft_response` only ever produc
 limitation (see `CLAUDE.md`).
 
 **Does this use LangGraph or another agent-orchestration framework?**
-Not yet, and not by default. Routing between the 3 known outcomes (aggregate / draft / escalate)
-is a plain `if/elif` function ([`src/aurapulse/routing.py`](src/aurapulse/routing.py)) — see
-`docs/DESIGN.md` for the reasoning. The concrete trigger this project has set for introducing one:
-a reject → regenerate loop with persisted, pausable state — e.g. a human rejecting a draft in
-`app/streamlit_app.py` and the system regenerating it with that feedback. The UI now records
-rejections, but nothing consumes them yet, so that trigger condition exists but hasn't been acted
-on.
+In exactly one place, deliberately. Routing between the 3 known outcomes (aggregate / draft /
+escalate) is still a plain `if/elif` function
+([`src/aurapulse/routing.py`](src/aurapulse/routing.py)) — 3 routes stayed legible without a
+framework, so none was introduced there. The draft reject/regenerate loop is different: a human
+can reject a draft in `app/streamlit_app.py`, have it regenerated with their feedback, reject
+again, and the whole thing has to pause indefinitely between clicks (even across closing and
+reopening the browser) — state a plain Python loop can't hold across reruns. That's
+[`src/aurapulse/draft_graph.py`](src/aurapulse/draft_graph.py), built on LangGraph's
+`interrupt()`/`Command(resume=...)` mechanism. See `docs/DESIGN.md` for the full design and why
+the same "does a framework earn its complexity" question got two different answers in one project.
 
 **Where's the actual review data?**
 Not in this repo. Download the [Yelp Open Dataset](https://www.yelp.com/dataset) yourself

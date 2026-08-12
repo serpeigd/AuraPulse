@@ -2,17 +2,25 @@
 
 Exists because `scripts/run_pipeline.py` only produces terminal text --
 nobody reviewing this project is going to clone the repo, install
-Ollama, and read stdout. This renders the exact same
-`orchestrator.process_reviews()` output as an interactive page, and adds
-one new thing scripts can't: a human approve/reject action on each
-draft, logged via `draft_decisions.record_draft_decision`.
+Ollama, and read stdout. This renders the same routing/aggregation
+logic as an interactive page, plus the thing a script fundamentally
+can't do: a human rejecting a draft, having it regenerated with their
+feedback, and rejecting again -- the reject/regenerate loop, driven by
+`aurapulse.draft_graph`'s LangGraph state machine (see docs/DESIGN.md
+for why this loop specifically was the trigger condition for
+introducing a graph orchestrator, when plain routing wasn't).
 
-Scope, deliberately: "Reject" only records the decision (with an
-optional note). It does NOT regenerate the draft -- there is no
-reject-then-regenerate loop wired up yet. See docs/DESIGN.md's
-LangGraph entry: that loop is the concrete trigger condition for
-introducing a graph orchestrator, and this UI is what would drive it,
-but building the loop itself is separate, not-yet-started work.
+Deliberately does NOT reuse `orchestrator.process_reviews()` for
+DRAFT_RESPONSE reviews -- that function eagerly generates one draft per
+review in a single pass, which would mean generating a draft twice (once
+via process_reviews, once via the graph's own first `generate_draft`
+node) for no reason. Instead this does its own thin per-review routing
+loop, reusing `routing.decide_route`, `response_draft.flag_for_escalation`,
+and `aggregation.aggregate_reviews` directly -- all pure/deterministic,
+none of them the thing that changed. `run_pipeline.py` (the
+non-interactive script) is untouched and still uses `process_reviews()`
+as before; the interactive loop only makes sense with a human present
+to click Approve/Reject.
 
 Per CLAUDE.md's non-negotiable rule, nothing here can publish a reply
 either -- "Approve" only marks a draft as human-reviewed in the local
@@ -30,31 +38,56 @@ especially on Windows; see README.md's Usage section.)
 
 from __future__ import annotations
 
-import streamlit as st
+import logging
 
-from aurapulse.aggregation import summarize_other_aspect_usage
+import streamlit as st
+from langgraph.types import Command, RunnableConfig
+
+from aurapulse.aggregation import (
+    BusinessReport,
+    aggregate_reviews,
+    summarize_other_aspect_usage,
+)
+from aurapulse.classifier import ClassificationError
 from aurapulse.draft_decisions import record_draft_decision
-from aurapulse.orchestrator import Hito1Batch, process_reviews
+from aurapulse.draft_graph import build_draft_graph, draft_outcome, initial_state
 from aurapulse.pipeline_io import (
     DEFAULT_INPUT_PATH,
     DEFAULT_REVIEWS_PATH,
     load_demo_data,
     load_real_data,
 )
-from aurapulse.schemas import DraftDecision, DraftResponse, ReviewAnalysis, Sentiment
+from aurapulse.response_draft import flag_for_escalation
+from aurapulse.routing import decide_route
+from aurapulse.schemas import (
+    DraftDecision,
+    EscalationFlag,
+    ReviewAnalysis,
+    Route,
+    Sentiment,
+)
+
+logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="AuraPulse", page_icon="📋", layout="wide")
 
 
 def _init_state() -> None:
-    st.session_state.setdefault("batch", None)
+    st.session_state.setdefault("graph", None)
+    st.session_state.setdefault("business_reports", None)
+    st.session_state.setdefault("escalations", [])
+    st.session_state.setdefault("draft_review_ids", [])
+    st.session_state.setdefault("draft_failures", [])
     st.session_state.setdefault("analyses", [])
     st.session_state.setdefault("review_texts", {})
-    st.session_state.setdefault("decisions", {})  # review_id -> "approved" | "rejected"
+
+
+def _graph_config(review_id: str) -> RunnableConfig:
+    return RunnableConfig(configurable={"thread_id": review_id})
 
 
 def _run_pipeline(use_demo: bool) -> None:
-    """Load data, run process_reviews(), stash results in session state."""
+    """Load data, route every review, and kick off the draft graph for DRAFT_RESPONSE ones."""
     if use_demo:
         analyses, review_texts = load_demo_data()
     else:
@@ -64,13 +97,42 @@ def _run_pipeline(use_demo: bool) -> None:
         st.error("No classified reviews to process.")
         return
 
-    with st.spinner("Routing reviews (draft generation calls the local Ollama model, this can take a while)..."):
-        batch = process_reviews(analyses, review_texts)
+    graph = build_draft_graph()
+    escalations: list[EscalationFlag] = []
+    draft_review_ids: list[str] = []
+    draft_failures: list[str] = []
 
-    st.session_state["batch"] = batch
+    with st.spinner("Routing reviews (draft generation calls the local Ollama model, this can take a while)..."):
+        for analysis in analyses:
+            route = decide_route(analysis)
+            if route == Route.AGGREGATE:
+                continue
+            if route == Route.ESCALATE:
+                escalations.append(flag_for_escalation(analysis))
+                continue
+            # route == Route.DRAFT_RESPONSE: run the graph's first generate_draft ->
+            # human_review, which pauses (interrupt()) once the first draft is ready.
+            text = review_texts[analysis.review_id]
+            try:
+                graph.invoke(
+                    initial_state(analysis.review_id, analysis.business_id, text, analysis),
+                    config=_graph_config(analysis.review_id),
+                )
+            except ClassificationError as exc:
+                draft_failures.append(analysis.review_id)
+                logger.warning("review_id=%s: draft generation failed, skipping: %s", analysis.review_id, exc)
+                continue
+            draft_review_ids.append(analysis.review_id)
+
+        business_reports = aggregate_reviews(analyses)
+
+    st.session_state["graph"] = graph
+    st.session_state["business_reports"] = business_reports
+    st.session_state["escalations"] = escalations
+    st.session_state["draft_review_ids"] = draft_review_ids
+    st.session_state["draft_failures"] = draft_failures
     st.session_state["analyses"] = analyses
     st.session_state["review_texts"] = review_texts
-    st.session_state["decisions"] = {}
 
 
 def _render_sidebar() -> None:
@@ -97,9 +159,9 @@ def _render_sidebar() -> None:
     st.sidebar.caption("Requires a running local Ollama server (`ollama serve`) -- draft generation always calls it.")
 
 
-def _render_business_reports(batch: Hito1Batch) -> None:
+def _render_business_reports(business_reports: list[BusinessReport]) -> None:
     st.header("Business reports")
-    for report in batch.business_reports:
+    for report in business_reports:
         with st.expander(f"{report.business_id} ({report.review_count} reviews)", expanded=True):
             cols = st.columns(3)
             cols[0].metric("Positive", report.sentiment_counts.get(Sentiment.POSITIVE, 0))
@@ -129,68 +191,85 @@ def _render_business_reports(batch: Hito1Batch) -> None:
                 st.warning(f"⚠️ {flag}")
 
 
-def _decision_key(review_id: str) -> str:
-    return f"decision::{review_id}"
+def _render_draft(review_id: str, review_text: str) -> None:
+    """Render one review's current draft-graph state and, if still pending, its Approve/Reject form.
 
+    Reads live state via ``graph.get_state`` rather than a snapshot passed
+    in -- after a resume, the graph may already be sitting on a *new*
+    draft (a regeneration), or on a terminal outcome, and this always
+    reflects whichever is current.
+    """
+    graph = st.session_state["graph"]
+    config = _graph_config(review_id)
+    values = graph.get_state(config).values
+    business_id = values["business_id"]
+    attempt, max_attempts = values["attempt"], values["max_attempts"]
+    outcome = draft_outcome(values)
 
-def _render_draft(draft: DraftResponse, review_text: str) -> None:
-    decisions: dict[str, str] = st.session_state["decisions"]
-    decided = decisions.get(draft.review_id)
-
-    st.markdown(f"**[{draft.review_id}]** ({draft.business_id})")
+    st.markdown(f"**[{review_id}]** ({business_id}) — draft {attempt}/{max_attempts}")
     st.caption(f"Original review: {review_text}")
-    st.info(draft.draft_text)
+    st.info(values["draft_text"])
 
-    if decided == "approved":
+    if outcome == "approved":
         st.success("✅ Approved for human sending (logged, never auto-sent).")
         return
-    if decided == "rejected":
-        st.error("❌ Rejected (logged).")
+    if outcome == "needs_human_rewrite":
+        st.error(
+            f"❌ Rejected {max_attempts} time(s) in a row — the model isn't converging on this one. "
+            "Needs a human-written reply instead of another regeneration."
+        )
         return
 
-    with st.form(key=_decision_key(draft.review_id)):
-        feedback = st.text_input("Optional note (why reject / what to change)", key=f"feedback::{draft.review_id}")
+    reject_label = "❌ Reject & regenerate" if attempt < max_attempts else "❌ Reject (last automatic attempt)"
+    with st.form(key=f"decision::{review_id}::{attempt}"):
+        feedback = st.text_input(
+            "Optional note (why reject / what to change)", key=f"feedback::{review_id}::{attempt}"
+        )
         col_approve, col_reject = st.columns(2)
         approve_clicked = col_approve.form_submit_button("✅ Approve")
-        reject_clicked = col_reject.form_submit_button("❌ Reject")
+        reject_clicked = col_reject.form_submit_button(reject_label)
 
-    if approve_clicked or reject_clicked:
-        approved = approve_clicked
-        record_draft_decision(
-            DraftDecision(
-                review_id=draft.review_id,
-                business_id=draft.business_id,
-                approved=approved,
-                feedback=feedback or None,
-            )
+    if not (approve_clicked or reject_clicked):
+        return
+
+    approved = approve_clicked
+    record_draft_decision(
+        DraftDecision(
+            review_id=review_id, business_id=business_id, approved=approved, feedback=(feedback or None)
         )
-        decisions[draft.review_id] = "approved" if approved else "rejected"
-        st.rerun()
+    )
+    spinner_msg = "Regenerating draft with your feedback..." if reject_clicked and attempt < max_attempts else None
+    if spinner_msg:
+        with st.spinner(spinner_msg):
+            graph.invoke(Command(resume={"approved": approved, "feedback": feedback or None}), config=config)
+    else:
+        graph.invoke(Command(resume={"approved": approved, "feedback": feedback or None}), config=config)
+    st.rerun()
 
 
-def _render_drafts(batch: Hito1Batch, review_texts: dict[str, str]) -> None:
-    st.header(f"Draft replies — human review required ({len(batch.drafts)})")
-    if batch.draft_failures:
+def _render_drafts(review_ids: list[str], draft_failures: list[str], review_texts: dict[str, str]) -> None:
+    st.header(f"Draft replies — human review required ({len(review_ids)})")
+    if draft_failures:
         st.warning(
-            f"Draft generation FAILED for {len(batch.draft_failures)} review(s): "
-            f"{batch.draft_failures}. Ollama may be unreachable (try: `ollama serve`)."
+            f"Draft generation FAILED for {len(draft_failures)} review(s): "
+            f"{draft_failures}. Ollama may be unreachable (try: `ollama serve`)."
         )
-    if not batch.drafts:
+    if not review_ids:
         st.caption("No drafts generated for this batch.")
         return
 
-    for draft in batch.drafts:
-        _render_draft(draft, review_texts.get(draft.review_id, "(text unavailable)"))
+    for review_id in review_ids:
+        _render_draft(review_id, review_texts.get(review_id, "(text unavailable)"))
         st.divider()
 
 
-def _render_escalations(batch: Hito1Batch) -> None:
-    st.header(f"Escalations ({len(batch.escalations)})")
-    if not batch.escalations:
+def _render_escalations(escalations: list[EscalationFlag]) -> None:
+    st.header(f"Escalations ({len(escalations)})")
+    if not escalations:
         st.caption("No reviews escalated for this batch.")
         return
     st.dataframe(
-        [{"review_id": e.review_id, "business_id": e.business_id, "reason": e.reason} for e in batch.escalations],
+        [{"review_id": e.review_id, "business_id": e.business_id, "reason": e.reason} for e in escalations],
         hide_index=True,
         use_container_width=True,
     )
@@ -216,15 +295,15 @@ def main() -> None:
     _init_state()
     _render_sidebar()
 
-    batch: Hito1Batch | None = st.session_state["batch"]
-    if batch is None:
+    business_reports: list[BusinessReport] | None = st.session_state["business_reports"]
+    if business_reports is None:
         st.title("AuraPulse")
         st.write("Choose a data source in the sidebar and click **Run pipeline** to see results.")
         return
 
-    _render_business_reports(batch)
-    _render_drafts(batch, st.session_state["review_texts"])
-    _render_escalations(batch)
+    _render_business_reports(business_reports)
+    _render_drafts(st.session_state["draft_review_ids"], st.session_state["draft_failures"], st.session_state["review_texts"])
+    _render_escalations(st.session_state["escalations"])
     _render_other_aspect_summary(st.session_state["analyses"])
 
 
