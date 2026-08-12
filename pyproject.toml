@@ -21,6 +21,7 @@ dev = [
 ]
 ui = [
     "streamlit>=1.38",
+    "langgraph>=1.0",
 ]
 
 [tool.pytest.ini_options]

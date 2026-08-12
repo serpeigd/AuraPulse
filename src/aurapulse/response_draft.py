@@ -139,6 +139,7 @@ def generate_draft_response(
     text: str,
     analysis: ReviewAnalysis,
     *,
+    feedback: str | None = None,
     model: str | None = None,
     host: str | None = None,
     max_retries: int = 2,
@@ -154,6 +155,15 @@ def generate_draft_response(
             are passed to the model, as a steering hint grounded in
             already-extracted structure — the model still reads ``text``
             itself rather than relying solely on this summary.
+        feedback: A human reviewer's note on why a *previous* draft for
+            this same review was rejected (see
+            ``draft_graph.py``'s reject/regenerate loop). When set, it's
+            folded into this call's own prompt as an instruction to
+            address that specific gap -- it is NOT accumulated across
+            calls; each regeneration only sees the most recent note,
+            matching the "simple" feedback design chosen over threading
+            the full rejected-draft history into the prompt (see
+            docs/DESIGN.md).
         model: Ollama model tag. Defaults to $OLLAMA_MODEL, then the
             same default as ``classifier.classify_review``.
         host: Ollama server URL. Same defaulting as ``classify_review``.
@@ -180,6 +190,12 @@ def generate_draft_response(
     user_content = (
         f"Review:\n{text}\n\nAspects the review criticized: {', '.join(negative_aspects) or 'unspecified'}"
     )
+    if feedback:
+        user_content += (
+            f"\n\nA human reviewer rejected your previous draft for this review with this note: "
+            f'"{feedback}". Write a new draft that addresses this note specifically -- do not '
+            "repeat the same wording or the same gap the note is pointing at."
+        )
     messages: list[dict[str, str]] = [{"role": "system", "content": _DRAFT_SYSTEM_PROMPT}]
     for example_text, example_draft in _FEW_SHOT_EXAMPLES:
         messages.append({"role": "user", "content": f"Review:\n{example_text}"})
