@@ -85,19 +85,22 @@ This is a portfolio project, developed incrementally with documented design deci
   condition `docs/DESIGN.md` had been describing abstractly since Hito 1 kicked off. See
   `docs/DESIGN.md` for the full design and why routing itself still doesn't need it
 - Consolidated results table (see "Results" below) — every eval number obtained so far in one place
-- Streamlit Cloud replay mode: a third "Frozen demo snapshot" data source
-  (`app/frozen_demo.json`, produced by `scripts/freeze_demo_run.py`) that serves one real,
-  previously-captured run instead of calling anything live — the cloud deployment's container
-  can't reach a local Ollama server, so this is what makes a public link possible without
-  breaking the zero-cost/local-model constraint. Read-only (no reject/regenerate — there's no
-  reachable model to regenerate against). See `docs/DESIGN.md` for the design and "Deploying"
-  below for how to actually put it on Streamlit Cloud
+- Streamlit Cloud replay mode: a third "🧊 Instant demo" data source (`app/frozen_demo.json`,
+  produced by `scripts/freeze_demo_run.py`) that serves one real, previously-captured run instead
+  of calling anything live — the cloud deployment's container can't reach a local Ollama server,
+  so this is what makes a public link possible without breaking the zero-cost/local-model
+  constraint. Its own tab is a per-review walkthrough (sentiment, aspects, the actual routing
+  decision, and its outcome) covering all 8 reviews, not just the ones that got a draft — read-only
+  (no reject/regenerate — there's no reachable model to regenerate against). Deployed and live —
+  see "Deploying" below
+- Adaptive onboarding: the sidebar detects whether a local Ollama server is actually reachable and
+  defaults to whichever data source will work; the instant demo auto-runs on page load so a cloud
+  visitor sees real results with zero clicks. "Run pipeline" is disabled outright (not just a
+  warning) whenever the current selection is known to fail before anyone clicks it. See
+  `docs/DESIGN.md`'s UI-clarity entries
 
 **Not done yet:**
 - A real escalation delivery channel (email/Slack/dashboard) beyond the local JSONL log
-- Actually deploying to Streamlit Cloud — the code is ready (see "Deploying" below), but
-  connecting the repo on [share.streamlit.io](https://share.streamlit.io) is a manual step in the
-  project owner's own account, not something committed here
 - The `aspect` enum's `other` category — still the weakest performer, unrevisited since Hito 0
 
 ## Results
@@ -373,12 +376,11 @@ same report against it.
 
 ## Deploying
 
-The Streamlit app can run two ways: locally with the two live data sources (needs Ollama), or as a
+The Streamlit app runs two ways: locally with the two live data sources (needs Ollama), or as a
 public Streamlit Community Cloud link using the frozen-replay data source (needs no server on the
 visitor's end at all — see `docs/DESIGN.md`'s "Streamlit Cloud replay mode" entry for why the cloud
-container can't run the live routes). The code for both is already in this repo; deploying is a
-one-time manual step in your own [Streamlit Community Cloud](https://share.streamlit.io) account —
-nothing here can click that button for you:
+container can't run the live routes). It's deployed — connecting a new repo is a one-time manual
+step in the project owner's own [Streamlit Community Cloud](https://share.streamlit.io) account:
 
 1. Sign in at [share.streamlit.io](https://share.streamlit.io) with the GitHub account that owns
    this repo (it's public, so no extra access grant is needed).
@@ -387,8 +389,8 @@ nothing here can click that button for you:
    automatically — nothing to configure.
 4. Deploy. The app detects that no local Ollama server is reachable and auto-selects **🧊 Instant
    demo** — it loads and runs on its own, no click needed. The other two data sources need a
-   local Ollama server the cloud container can't reach; picking one shows an explicit warning
-   before anyone clicks Run, so nobody visiting the link runs into a silently broken button.
+   local Ollama server the cloud container can't reach, so **Run pipeline** is disabled outright
+   if either is picked there — nobody visiting the link can click into a broken run.
 
 To refresh what the frozen snapshot shows (e.g. after a prompt change in `response_draft.py`):
 

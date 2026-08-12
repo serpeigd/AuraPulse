@@ -39,7 +39,16 @@ data source will actually work here. When that resolves to the instant
 demo (the cloud case), the pipeline auto-runs on page load -- a visitor
 sees real results immediately instead of an empty page with a button to
 find first. Live options never auto-run (they're slow, real model
-calls); those still need an explicit click.
+calls); those still need an explicit click. `_run_disabled_reason()`
+disables "Run pipeline" outright (not just a warning) whenever the
+selected data source is known in advance to fail -- Ollama unreachable
+for a live option, or a missing input file -- so nobody can click into
+a broken run.
+
+The instant demo's own tab, `_render_pipeline_walkthrough`, is its
+flagship view: every one of the 8 sample reviews shown with its actual
+sentiment/aspects, the route the pipeline picked for it, and why --
+aggregated, drafted, or escalated -- not just the 5 that got a draft.
 
 Per CLAUDE.md's non-negotiable rule, nothing here can publish a reply
 either -- "Approve" only marks a draft as human-reviewed in the local
@@ -112,6 +121,7 @@ def _init_state() -> None:
     st.session_state.setdefault("draft_review_ids", [])
     st.session_state.setdefault("draft_failures", [])
     st.session_state.setdefault("frozen_drafts", [])
+    st.session_state.setdefault("frozen_reviews", [])
     st.session_state.setdefault("other_summary", None)
     st.session_state.setdefault("review_texts", {})
 
@@ -204,6 +214,23 @@ def _run_pipeline_frozen() -> None:
     st.session_state["escalations"] = [EscalationFlag.model_validate(e) for e in data["escalations"]]
     st.session_state["other_summary"] = OtherAspectSummary.model_validate(data["other_aspect_summary"])
     st.session_state["frozen_drafts"] = data["drafts"]
+    st.session_state["frozen_reviews"] = data.get("reviews", [])
+
+
+def _run_disabled_reason(data_source: str, ollama_ok: bool) -> str | None:
+    """None if Run pipeline would work for this selection; otherwise why it's disabled."""
+    if data_source == _FROZEN:
+        if not FROZEN_SNAPSHOT_PATH.exists():
+            return f"⚠️ `{FROZEN_SNAPSHOT_PATH.name}` not found — run `python scripts/freeze_demo_run.py` first."
+        return None
+    if not ollama_ok:
+        return (
+            f"⚠️ No local Ollama server detected here — this would fail. Pick **{_FROZEN}** "
+            "instead, or run this app locally with `ollama serve` running (see README)."
+        )
+    if data_source == _REAL_LIVE and not (DEFAULT_INPUT_PATH.exists() and DEFAULT_REVIEWS_PATH.exists()):
+        return f"⚠️ Missing `{DEFAULT_INPUT_PATH}` / `{DEFAULT_REVIEWS_PATH}` — run `scripts/build_subset.py` first."
+    return None
 
 
 def _render_sidebar(ollama_ok: bool) -> tuple[str, bool]:
@@ -222,15 +249,19 @@ def _render_sidebar(ollama_ok: bool) -> tuple[str, bool]:
         ),
     )
 
-    if data_source != _FROZEN and not ollama_ok:
-        st.sidebar.warning(
-            "⚠️ No local Ollama server detected here -- this option will fail. Pick "
-            f"**{_FROZEN}**, or run this app locally with `ollama serve` running (see README)."
-        )
+    disabled_reason = _run_disabled_reason(data_source, ollama_ok)
+    if disabled_reason:
+        st.sidebar.warning(disabled_reason)
     elif data_source == _REAL_LIVE:
         st.sidebar.caption(f"Reads `{DEFAULT_INPUT_PATH}` + `{DEFAULT_REVIEWS_PATH}`.")
 
-    run_clicked = st.sidebar.button("▶️ Run pipeline", type="primary", width="stretch")
+    run_clicked = st.sidebar.button(
+        "▶️ Run pipeline",
+        type="primary",
+        width="stretch",
+        disabled=disabled_reason is not None,
+        help=disabled_reason,
+    )
 
     st.sidebar.divider()
     st.sidebar.caption(
@@ -259,8 +290,8 @@ def _render_header(mode: str) -> None:
     if mode == "frozen":
         st.info(
             "🧊 **Instant demo** — a real run's actual output, captured once locally against a "
-            "live model, not invented text. Drafts below are read-only here; run this app "
-            "locally to try rejecting one and watching it regenerate."
+            "live model, not invented text. See exactly what it did per review in the walkthrough "
+            "below. Read-only here; run this app locally to reject a draft and watch it regenerate."
         )
     else:
         st.success(
@@ -390,22 +421,47 @@ def _render_drafts_live(review_ids: list[str], draft_failures: list[str], review
         _render_draft(review_id, review_texts.get(review_id, "(text unavailable)"))
 
 
-def _render_drafts_frozen(frozen_drafts: list[dict]) -> None:
+_SENTIMENT_BADGE = {"positive": "🟢 Positive", "neutral": "🟡 Neutral", "negative": "🔴 Negative"}
+_ASPECT_ICON = {"positive": "🟢", "neutral": "🟡", "negative": "🔴"}
+_ROUTE_INFO = {
+    "aggregate": ("📊 Aggregated only", "Positive/neutral — folded into the business report, no reply needed."),
+    "draft_response": ("✍️ Drafted a reply", "Negative, but no severity signal — generated a reply for a human to review."),
+    "escalate": ("🚩 Escalated to a human", "Flagged as severe — sent straight to a human, no draft generated."),
+}
+
+
+def _render_pipeline_walkthrough(reviews: list[dict]) -> None:
+    """The Instant demo's flagship view: review in, real pipeline decision out, for every review.
+
+    Unlike ``_render_drafts_frozen`` (only the 5 reviews that got a draft),
+    this covers all 8 -- including the ones that were aggregated-only or
+    escalated -- so a visitor sees the actual routing decision at work,
+    not just its one most visible outcome.
+    """
     st.caption(
-        "A real run's actual output, captured once locally against a live Ollama server — not "
-        "invented placeholder text (see docs/DESIGN.md). Read-only: the reject/regenerate loop "
-        "needs a reachable model, which this deployment doesn't have. Run the app locally (see "
-        "README) to try it interactively."
+        "Every review below is real, and every step is what the pipeline actually produced for "
+        "it — captured once against a live model, not invented (see docs/DESIGN.md). This is the "
+        "same classify → route → act flow `scripts/run_pipeline.py` runs end to end."
     )
-    if not frozen_drafts:
-        st.caption("No drafts in this snapshot.")
+    if not reviews:
+        st.caption("No reviews in this snapshot.")
         return
 
-    for draft in frozen_drafts:
+    for r in reviews:
+        route_label, route_reason = _ROUTE_INFO[r["route"]]
         with st.container(border=True):
-            st.markdown(f"**{draft['review_id']}** · {draft['business_id']}")
-            st.caption(f"Original review: {draft['review_text']}")
-            st.info(draft["draft_text"])
+            st.markdown(f"**{r['review_id']}** · {r['business_id']}")
+            st.markdown(f"📝 _{r['review_text']}_")
+
+            aspect_bits = [f"{a['aspect']} {_ASPECT_ICON[a['sentiment']]}" for a in r["aspects"]]
+            aspects_line = ", ".join(aspect_bits) if aspect_bits else "none mentioned"
+            st.markdown(f"**Sentiment:** {_SENTIMENT_BADGE[r['overall_sentiment']]} &nbsp; **Aspects:** {aspects_line}")
+            st.markdown(f"**→ Route:** {route_label} — _{route_reason}_")
+
+            if r["draft_text"]:
+                st.success(f"**Draft reply:** {r['draft_text']}")
+            elif r["escalation_reason"]:
+                st.error(f"**Escalation reason:** {r['escalation_reason']}")
 
 
 def _render_escalations(escalations: list[EscalationFlag]) -> None:
@@ -468,6 +524,25 @@ def main() -> None:
     _render_kpis(business_reports, st.session_state["escalations"], draft_count)
     st.divider()
 
+    if mode == "frozen":
+        tab_walkthrough, tab_reports, tab_escalations, tab_aspects = st.tabs(
+            [
+                f"🔬 Pipeline walkthrough ({len(st.session_state['frozen_reviews'])})",
+                f"📊 Business reports ({len(business_reports)})",
+                f"🚩 Escalations ({len(st.session_state['escalations'])})",
+                "🔍 Aspect coverage",
+            ]
+        )
+        with tab_walkthrough:
+            _render_pipeline_walkthrough(st.session_state["frozen_reviews"])
+        with tab_reports:
+            _render_business_reports(business_reports)
+        with tab_escalations:
+            _render_escalations(st.session_state["escalations"])
+        with tab_aspects:
+            _render_other_aspect_summary(st.session_state["other_summary"])
+        return
+
     tab_reports, tab_drafts, tab_escalations, tab_aspects = st.tabs(
         [
             f"📊 Business reports ({len(business_reports)})",
@@ -479,14 +554,11 @@ def main() -> None:
     with tab_reports:
         _render_business_reports(business_reports)
     with tab_drafts:
-        if mode == "frozen":
-            _render_drafts_frozen(st.session_state["frozen_drafts"])
-        else:
-            _render_drafts_live(
-                st.session_state["draft_review_ids"],
-                st.session_state["draft_failures"],
-                st.session_state["review_texts"],
-            )
+        _render_drafts_live(
+            st.session_state["draft_review_ids"],
+            st.session_state["draft_failures"],
+            st.session_state["review_texts"],
+        )
     with tab_escalations:
         _render_escalations(st.session_state["escalations"])
     with tab_aspects:

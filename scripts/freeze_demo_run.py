@@ -44,15 +44,31 @@ def main() -> int:
 
     drafts = []
     escalations = []
+    reviews = []  # full per-review pipeline trace, for app/streamlit_app.py's walkthrough view
     for analysis in analyses:
         route = decide_route(analysis)
+        text = review_texts[analysis.review_id]
+        entry = {
+            "review_id": analysis.review_id,
+            "business_id": analysis.business_id,
+            "review_text": text,
+            "overall_sentiment": analysis.overall_sentiment.value,
+            "aspects": [{"aspect": a.aspect.value, "sentiment": a.sentiment.value} for a in analysis.aspects],
+            "severity_flag": analysis.severity_flag,
+            "route": route.value,
+            "draft_text": None,
+            "escalation_reason": None,
+        }
         if route == Route.ESCALATE:
-            escalations.append(flag_for_escalation(analysis))
+            flag = flag_for_escalation(analysis)
+            entry["escalation_reason"] = flag.reason
+            escalations.append(flag)
         elif route == Route.DRAFT_RESPONSE:
-            text = review_texts[analysis.review_id]
             print(f"Generating draft for {analysis.review_id}...")
             draft = generate_draft_response(analysis.review_id, analysis.business_id, text, analysis)
+            entry["draft_text"] = draft.draft_text
             drafts.append((draft, text))
+        reviews.append(entry)
 
     business_reports = aggregate_reviews(analyses)
     other_summary = summarize_other_aspect_usage(analyses)
@@ -70,11 +86,12 @@ def main() -> int:
         ],
         "escalations": [e.model_dump(mode="json") for e in escalations],
         "other_aspect_summary": other_summary.model_dump(mode="json"),
+        "reviews": reviews,
     }
 
     OUTPUT_PATH.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(
-        f"\nWrote {len(drafts)} draft(s), {len(escalations)} escalation(s), "
+        f"\nWrote {len(reviews)} review(s) ({len(drafts)} draft(s), {len(escalations)} escalation(s)), "
         f"{len(business_reports)} business report(s) to {OUTPUT_PATH}"
     )
     return 0

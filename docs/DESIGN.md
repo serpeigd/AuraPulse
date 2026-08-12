@@ -2,6 +2,40 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## UI follow-up: block the failing click, show the pipeline actually working
+
+Status: resolved (2026-08-12), same day as the clarity pass below -- direct follow-up feedback
+after trying that version: block "Run pipeline" when the current selection is known to fail, and
+make the instant demo show what the pipeline actually did per review, not just its most visible
+outcome.
+
+**1. Disable, don't just warn.** The previous pass added a warning banner when a live data source
+was picked with no Ollama reachable, but the button stayed clickable -- clicking it still "worked"
+in the sense of not crashing (`ClassificationError` is caught per-review inside
+`_run_pipeline_live`'s loop), just with every review landing in `draft_failures`. That's a
+technically-graceful failure a visitor still has to notice and interpret. `_run_disabled_reason()`
+now computes, before any click, whether the current selection can succeed at all -- Ollama
+unreachable for a live option, the frozen snapshot file missing, or the real-data input files
+missing -- and `st.button(..., disabled=...)` blocks the click outright, with the same message
+surfaced as the button's own tooltip. Verified with a second local instance pointed at an
+unreachable `OLLAMA_HOST`: the live options render disabled with the warning visible, the instant
+demo stays clickable (and auto-runs, unaffected).
+
+**2. The instant demo's flagship view is now a per-review walkthrough, not a drafts list.** The
+previous version's frozen-mode UI only showed the 5 reviews that got a draft -- the 3 that were
+aggregated-only or escalated were invisible outside the aggregate business-report numbers, which
+undersold exactly the part of the project (`routing.decide_route`) this whole demo exists to show
+off. `scripts/freeze_demo_run.py` now captures a full per-review trace in the snapshot --
+sentiment, aspects, the actual route decision, and its outcome -- for all 8 reviews, not just the
+5 drafted ones. `_render_pipeline_walkthrough` renders each as a card: review text → sentiment/
+aspect badges → route decision with a plain-language reason → the actual outcome (draft text,
+escalation reason, or an explicit "aggregated only, no reply needed" for positive/neutral ones).
+This is now the instant demo's first tab, ahead of the aggregate business-report view.
+
+**What didn't change:** the live-mode reject/regenerate cards, the LangGraph loop, and routing
+logic are all untouched. Frozen mode still can't regenerate (no reachable model) -- the walkthrough
+makes the *routing decision* visible, not a live model call.
+
 ## UI clarity pass: the deployed app was confusing to a first-time visitor
 
 Status: resolved (2026-08-12).
