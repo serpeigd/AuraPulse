@@ -22,6 +22,16 @@ non-interactive script) is untouched and still uses `process_reviews()`
 as before; the interactive loop only makes sense with a human present
 to click Approve/Reject.
 
+A third data source, "Frozen demo snapshot", exists for the Streamlit
+Cloud deployment specifically: a cloud container can't reach a local
+Ollama server, so the live routes above simply don't work there. The
+frozen snapshot (`app/frozen_demo.json`, produced by
+`scripts/freeze_demo_run.py`) replays one real, previously-captured run
+instead -- see docs/DESIGN.md's "Streamlit Cloud replay mode" entry for
+why this is a real run's actual output, not invented placeholder text,
+and why it can't support the reject/regenerate loop (nothing to
+regenerate against without a reachable model).
+
 Per CLAUDE.md's non-negotiable rule, nothing here can publish a reply
 either -- "Approve" only marks a draft as human-reviewed in the local
 log, exactly like "Reject" does; there is still no send/publish
@@ -38,13 +48,16 @@ especially on Windows; see README.md's Usage section.)
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import streamlit as st
 from langgraph.types import Command, RunnableConfig
 
 from aurapulse.aggregation import (
     BusinessReport,
+    OtherAspectSummary,
     aggregate_reviews,
     summarize_other_aspect_usage,
 )
@@ -62,7 +75,6 @@ from aurapulse.routing import decide_route
 from aurapulse.schemas import (
     DraftDecision,
     EscalationFlag,
-    ReviewAnalysis,
     Route,
     Sentiment,
 )
@@ -71,14 +83,22 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="AuraPulse", page_icon="📋", layout="wide")
 
+FROZEN_SNAPSHOT_PATH = Path(__file__).parent / "frozen_demo.json"
+
+_DEMO_LIVE = "Demo dataset (live -- needs local Ollama)"
+_REAL_LIVE = "Real classified data (live -- needs local Ollama)"
+_FROZEN = "Frozen demo snapshot (no Ollama needed -- for cloud deploys)"
+
 
 def _init_state() -> None:
+    st.session_state.setdefault("mode", None)  # "live" | "frozen"
     st.session_state.setdefault("graph", None)
     st.session_state.setdefault("business_reports", None)
     st.session_state.setdefault("escalations", [])
     st.session_state.setdefault("draft_review_ids", [])
     st.session_state.setdefault("draft_failures", [])
-    st.session_state.setdefault("analyses", [])
+    st.session_state.setdefault("frozen_drafts", [])
+    st.session_state.setdefault("other_summary", None)
     st.session_state.setdefault("review_texts", {})
 
 
@@ -86,7 +106,7 @@ def _graph_config(review_id: str) -> RunnableConfig:
     return RunnableConfig(configurable={"thread_id": review_id})
 
 
-def _run_pipeline(use_demo: bool) -> None:
+def _run_pipeline_live(use_demo: bool) -> None:
     """Load data, route every review, and kick off the draft graph for DRAFT_RESPONSE ones."""
     if use_demo:
         analyses, review_texts = load_demo_data()
@@ -125,14 +145,33 @@ def _run_pipeline(use_demo: bool) -> None:
             draft_review_ids.append(analysis.review_id)
 
         business_reports = aggregate_reviews(analyses)
+        other_summary = summarize_other_aspect_usage(analyses)
 
+    st.session_state["mode"] = "live"
     st.session_state["graph"] = graph
     st.session_state["business_reports"] = business_reports
     st.session_state["escalations"] = escalations
     st.session_state["draft_review_ids"] = draft_review_ids
     st.session_state["draft_failures"] = draft_failures
-    st.session_state["analyses"] = analyses
+    st.session_state["other_summary"] = other_summary
     st.session_state["review_texts"] = review_texts
+
+
+def _run_pipeline_frozen() -> None:
+    """Load the committed snapshot instead of calling anything live -- see module docstring."""
+    if not FROZEN_SNAPSHOT_PATH.exists():
+        st.error(
+            f"{FROZEN_SNAPSHOT_PATH} not found. Generate it with `python scripts/freeze_demo_run.py` "
+            "(needs a local Ollama server, one-time)."
+        )
+        return
+
+    data = json.loads(FROZEN_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    st.session_state["mode"] = "frozen"
+    st.session_state["business_reports"] = [BusinessReport.model_validate(r) for r in data["business_reports"]]
+    st.session_state["escalations"] = [EscalationFlag.model_validate(e) for e in data["escalations"]]
+    st.session_state["other_summary"] = OtherAspectSummary.model_validate(data["other_aspect_summary"])
+    st.session_state["frozen_drafts"] = data["drafts"]
 
 
 def _render_sidebar() -> None:
@@ -141,22 +180,29 @@ def _render_sidebar() -> None:
         "Zero-cost, local-LLM pipeline: classify -> route -> draft/escalate -> report. "
         "Never publishes a reply -- drafts are always for human review."
     )
-    use_demo = st.sidebar.radio(
-        "Data source",
-        ["Demo dataset (8 deterministic fake reviews)", "Real classified data"],
-        index=0,
-    ) == "Demo dataset (8 deterministic fake reviews)"
+    data_source = st.sidebar.radio("Data source", [_DEMO_LIVE, _REAL_LIVE, _FROZEN], index=0)
 
-    if not use_demo:
+    if data_source == _REAL_LIVE:
         st.sidebar.caption(f"Reads `{DEFAULT_INPUT_PATH}` + `{DEFAULT_REVIEWS_PATH}`.")
+    elif data_source == _FROZEN:
+        st.sidebar.caption(
+            "A real run's output, captured once locally -- read-only, no reject/regenerate "
+            "(nothing to regenerate against without a reachable model). See docs/DESIGN.md."
+        )
 
     if st.sidebar.button("Run pipeline", type="primary"):
         try:
-            _run_pipeline(use_demo)
+            if data_source == _FROZEN:
+                _run_pipeline_frozen()
+            else:
+                _run_pipeline_live(use_demo=data_source == _DEMO_LIVE)
         except FileNotFoundError as exc:
             st.sidebar.error(str(exc))
 
-    st.sidebar.caption("Requires a running local Ollama server (`ollama serve`) -- draft generation always calls it.")
+    if data_source != _FROZEN:
+        st.sidebar.caption(
+            "Requires a running local Ollama server (`ollama serve`) -- draft generation always calls it."
+        )
 
 
 def _render_business_reports(business_reports: list[BusinessReport]) -> None:
@@ -247,7 +293,7 @@ def _render_draft(review_id: str, review_text: str) -> None:
     st.rerun()
 
 
-def _render_drafts(review_ids: list[str], draft_failures: list[str], review_texts: dict[str, str]) -> None:
+def _render_drafts_live(review_ids: list[str], draft_failures: list[str], review_texts: dict[str, str]) -> None:
     st.header(f"Draft replies — human review required ({len(review_ids)})")
     if draft_failures:
         st.warning(
@@ -260,6 +306,25 @@ def _render_drafts(review_ids: list[str], draft_failures: list[str], review_text
 
     for review_id in review_ids:
         _render_draft(review_id, review_texts.get(review_id, "(text unavailable)"))
+        st.divider()
+
+
+def _render_drafts_frozen(frozen_drafts: list[dict]) -> None:
+    st.header(f"Draft replies — frozen snapshot ({len(frozen_drafts)})")
+    st.caption(
+        "A real run's actual output, captured once locally against a live Ollama server -- not "
+        "invented placeholder text (see docs/DESIGN.md). Read-only: the reject/regenerate loop "
+        "needs a reachable model, which this deployment doesn't have. Run the app locally (see "
+        "README) to try it interactively."
+    )
+    if not frozen_drafts:
+        st.caption("No drafts in this snapshot.")
+        return
+
+    for draft in frozen_drafts:
+        st.markdown(f"**[{draft['review_id']}]** ({draft['business_id']})")
+        st.caption(f"Original review: {draft['review_text']}")
+        st.info(draft["draft_text"])
         st.divider()
 
 
@@ -279,8 +344,7 @@ def _render_escalations(escalations: list[EscalationFlag]) -> None:
     )
 
 
-def _render_other_aspect_summary(analyses: list[ReviewAnalysis]) -> None:
-    summary = summarize_other_aspect_usage(analyses)
+def _render_other_aspect_summary(summary: OtherAspectSummary) -> None:
     st.header("Aspect enum coverage")
     st.write(f"`other` used in {summary.other_mentions}/{summary.total_mentions} aspect mentions "
              f"({summary.other_share:.1%}).")
@@ -302,9 +366,14 @@ def main() -> None:
         return
 
     _render_business_reports(business_reports)
-    _render_drafts(st.session_state["draft_review_ids"], st.session_state["draft_failures"], st.session_state["review_texts"])
+    if st.session_state["mode"] == "frozen":
+        _render_drafts_frozen(st.session_state["frozen_drafts"])
+    else:
+        _render_drafts_live(
+            st.session_state["draft_review_ids"], st.session_state["draft_failures"], st.session_state["review_texts"]
+        )
     _render_escalations(st.session_state["escalations"])
-    _render_other_aspect_summary(st.session_state["analyses"])
+    _render_other_aspect_summary(st.session_state["other_summary"])
 
 
 if __name__ == "__main__":

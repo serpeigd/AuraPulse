@@ -2,6 +2,59 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Streamlit Cloud replay mode: a real run's output, not a live one
+
+Status: resolved (2026-08-12) — code-side; the actual cloud deploy click is a manual step for the
+project owner (see README's "Deploying" section), not something this repo's automation can do.
+
+**Problem.** Streamlit Community Cloud runs the app in a remote container with no route to
+`localhost:11434` — a local Ollama server is, by definition, local. Deploying `app/streamlit_app.py`
+as-is would put a "Run pipeline" button in front of anyone visiting the link that fails every time
+it's clicked. That's worse than not deploying at all: it looks broken, not zero-cost-by-design.
+
+**Options considered:**
+- **(A) Replay mode (chosen).** Freeze one real run's actual output as a committed JSON snapshot;
+  the cloud deployment serves that snapshot read-only instead of calling anything live. The local
+  deployment keeps all three data sources, including the two live ones.
+- **(B) Disable the live routes entirely in a "cloud build".** Rejected: would mean either a second
+  app entrypoint or environment-detection branching sprinkled through the main script, for something
+  a single extra sidebar option handles more simply.
+- **(C) Don't deploy to the cloud at all; ship a screen recording instead.** Genuinely simpler, and
+  was the fallback plan discussed with the project owner if (A) turned out disproportionate. Chose
+  (A) once it was clear the added surface was one script + a few dozen lines of UI branching, not a
+  second app.
+
+**Implementation.** `scripts/freeze_demo_run.py` runs the real demo dataset through
+`decide_route` → `generate_draft_response` / `flag_for_escalation` → `aggregate_reviews` (the exact
+same functions the live path uses, called once, locally, against a real Ollama server) and writes
+`app/frozen_demo.json` — business reports, draft text, escalations, and the aspect-coverage summary,
+all real output, not invented placeholder text. `app/streamlit_app.py` gained a third sidebar option,
+"Frozen demo snapshot," that loads this file and renders it through the same
+`_render_business_reports` / `_render_escalations` / `_render_other_aspect_summary` functions the
+live modes use (only draft rendering differs, since frozen drafts have no LangGraph thread behind
+them to resume) — one code path for the parts that don't care whether the data is live or frozen,
+a second, explicitly read-only one for the part that does.
+
+**Explicitly NOT supported in frozen mode: the reject/regenerate loop.** There's no model to
+regenerate against without a reachable Ollama server, so frozen drafts render as read-only text with
+a caption pointing back to "run this locally for the interactive version" rather than a
+non-functional Approve/Reject form. Disclosed in the UI itself, not just this doc.
+
+**`requirements.txt` at the repo root.** Streamlit Community Cloud looks for `requirements.txt` by
+default; `pyproject.toml` alone isn't reliably auto-detected there. Added one line, `.[ui]` —
+equivalent to `pip install -e ".[ui]"`, reusing `pyproject.toml`'s dependency declarations instead
+of duplicating version pins in a second file. Verified with `pip install --dry-run -r
+requirements.txt` before committing it. Local development is unaffected — `pip install -e
+".[dev,ui]"` (README's existing instructions) still installs `pytest`/`ruff`/`mypy` too, which this
+cloud-only file deliberately doesn't include.
+
+**Freshness.** The frozen snapshot is a point-in-time capture, not auto-regenerated — if
+`response_draft.py`'s prompt changes enough that the shipped example stops representing current
+behavior, re-run `scripts/freeze_demo_run.py` and commit the new `app/frozen_demo.json`. No test
+enforces this staleness check yet; a future CI job comparing snapshot freshness against
+`response_draft.py`'s last-changed commit would be the natural next step if this becomes a recurring
+gap, not built now since it hasn't been one yet.
+
 ## The reject/regenerate loop: this project's first (and only) LangGraph use
 
 Status: resolved (2026-08-12).

@@ -1,0 +1,7 @@
+# For Streamlit Community Cloud: it looks for requirements.txt at the repo
+# root by default (pyproject.toml alone isn't reliably auto-detected there).
+# Equivalent to `pip install -e ".[ui]"` -- installs this package (its base
+# dependencies come from pyproject.toml) plus the UI extras (streamlit,
+# langgraph). Local development should still use `pip install -e ".[dev,ui]"`
+# per README.md -- this file exists for the cloud deploy only.
+.[ui]

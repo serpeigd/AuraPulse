@@ -85,11 +85,19 @@ This is a portfolio project, developed incrementally with documented design deci
   condition `docs/DESIGN.md` had been describing abstractly since Hito 1 kicked off. See
   `docs/DESIGN.md` for the full design and why routing itself still doesn't need it
 - Consolidated results table (see "Results" below) — every eval number obtained so far in one place
+- Streamlit Cloud replay mode: a third "Frozen demo snapshot" data source
+  (`app/frozen_demo.json`, produced by `scripts/freeze_demo_run.py`) that serves one real,
+  previously-captured run instead of calling anything live — the cloud deployment's container
+  can't reach a local Ollama server, so this is what makes a public link possible without
+  breaking the zero-cost/local-model constraint. Read-only (no reject/regenerate — there's no
+  reachable model to regenerate against). See `docs/DESIGN.md` for the design and "Deploying"
+  below for how to actually put it on Streamlit Cloud
 
 **Not done yet:**
 - A real escalation delivery channel (email/Slack/dashboard) beyond the local JSONL log
-- A cloud-hosted demo link (Streamlit Cloud) — the app only runs locally today; a cloud deploy needs
-  a "replay" mode since the deployed container can't reach a local Ollama server, see `docs/DESIGN.md`
+- Actually deploying to Streamlit Cloud — the code is ready (see "Deploying" below), but
+  connecting the repo on [share.streamlit.io](https://share.streamlit.io) is a manual step in the
+  project owner's own account, not something committed here
 - The `aspect` enum's `other` category — still the weakest performer, unrevisited since Hito 0
 
 ## Results
@@ -221,7 +229,9 @@ demo); see `docs/DESIGN.md` for the full design and trade-offs.
 AuraPulse/
 ├── src/aurapulse/          # Library code: schemas, classifier, routing, aggregation, reporting...
 ├── scripts/                # CLI entry points — one script per pipeline step or offline eval
-├── app/                    # Streamlit demo UI (streamlit_app.py) — interactive view of the pipeline
+├── app/                    # Streamlit demo UI
+│   ├── streamlit_app.py    # interactive view of the pipeline (live + frozen-replay modes)
+│   └── frozen_demo.json    # committed snapshot for the frozen-replay data source (not gitignored)
 ├── tests/                  # pytest suite, one test_*.py per src/aurapulse/*.py module
 ├── data/
 │   ├── raw/                # Yelp Open Dataset goes here (gitignored, manual download)
@@ -233,6 +243,7 @@ AuraPulse/
 │   └── assets/AuraPulse_logo.png
 ├── .github/workflows/ci.yml
 ├── pyproject.toml
+├── requirements.txt        # Streamlit Community Cloud's default dependency lookup; `.[ui]`, see "Deploying"
 ├── .env.example
 └── LICENSE
 ```
@@ -360,6 +371,33 @@ Once a real classified dataset exists at `data/processed/classified_reviews.json
 `python scripts/generate_report.py --input data/processed/classified_reviews.jsonl` renders the
 same report against it.
 
+## Deploying
+
+The Streamlit app can run two ways: locally with the two live data sources (needs Ollama), or as a
+public Streamlit Community Cloud link using the frozen-replay data source (needs no server on the
+visitor's end at all — see `docs/DESIGN.md`'s "Streamlit Cloud replay mode" entry for why the cloud
+container can't run the live routes). The code for both is already in this repo; deploying is a
+one-time manual step in your own [Streamlit Community Cloud](https://share.streamlit.io) account —
+nothing here can click that button for you:
+
+1. Sign in at [share.streamlit.io](https://share.streamlit.io) with the GitHub account that owns
+   this repo (it's public, so no extra access grant is needed).
+2. **New app** → pick this repository, branch `main`, main file path `app/streamlit_app.py`.
+3. Streamlit Cloud installs from [`requirements.txt`](requirements.txt) at the repo root
+   automatically — nothing to configure.
+4. Deploy. Once it's live, select **Frozen demo snapshot** in the sidebar and click **Run
+   pipeline** — that's the only data source that works on the hosted link (the other two need a
+   local Ollama server the cloud container can't reach, and will error if picked there).
+
+To refresh what the frozen snapshot shows (e.g. after a prompt change in `response_draft.py`):
+
+```bash
+python scripts/freeze_demo_run.py   # needs a local Ollama server; overwrites app/frozen_demo.json
+git add app/frozen_demo.json && git commit -m "chore: refresh frozen demo snapshot"
+```
+
+Streamlit Cloud redeploys automatically on a push to `main`.
+
 ## Tests and checks
 
 ```bash
@@ -393,8 +431,9 @@ truth conventions, what was tried and reverted and why — is logged with its tr
   LangGraph's `MemorySaver` — zero-cost, no external store, but state is lost on a server restart
   mid-review (the human would have to click Run pipeline again). Fine for a local single-user demo;
   a real deployment would need a persistent checkpointer.
-- **The Streamlit app isn't deployed anywhere.** It only runs locally (`python -m streamlit run
-  app/streamlit_app.py`) — no public link yet; see "Not done yet" above.
+- **The Streamlit app isn't deployed anywhere yet.** The code and a `requirements.txt` are ready
+  (see "Deploying" above), but connecting the repo on Streamlit Community Cloud is a manual
+  one-time step in the project owner's own account — not something committed to this repo.
 - **A multi-criteria LLM-judge prompt doesn't judge criteria independently.** Removing one
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
