@@ -2,6 +2,53 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## UI clarity pass: the deployed app was confusing to a first-time visitor
+
+Status: resolved (2026-08-12).
+
+**Problem, in the project owner's own words after trying the freshly-deployed link:** "no queda
+nada claro ni intuitivo su uso" ("its usage isn't at all clear or intuitive"). Diagnosis: the
+previous UI dropped a visitor straight into three technically-labeled radio options ("Demo
+dataset (live -- needs local Ollama)", "Real classified data (live -- needs local Ollama)",
+"Frozen demo snapshot (no Ollama needed -- for cloud deploys)") with the live one defaulted first
+-- on the cloud deployment specifically, that default doesn't work, so a first click already
+looked broken. Past that, an empty page with a button was the entire landing experience, and
+results rendered as one long unbroken vertical scroll with no summary.
+
+**Changes, all in `app/streamlit_app.py`, no changes to pipeline/graph logic:**
+- **`_ollama_reachable()`** -- a 1-second TCP probe (`socket.create_connection`, cached 15s via
+  `st.cache_data`) against `OLLAMA_HOST`. The sidebar's default selection now adapts to what will
+  actually work: the live demo when a local model is reachable, the instant (frozen) demo when
+  it isn't -- which is exactly the cloud deployment's situation, solved without any
+  environment-specific branching or a second app.
+- **Auto-run, but only for the free path.** When the resolved default is the instant demo, the
+  pipeline runs on page load -- a cloud visitor sees real content immediately, no button to find
+  first. The two live options never auto-run, deliberately: they're real, slow model calls, and
+  auto-firing one on every local dev reload would be the wrong default. This is a narrow,
+  intentional exception, not a general "auto-run everything" pattern.
+- **Plain-language labels + a `help` tooltip** replacing the technical "(live -- needs local
+  Ollama)" qualifiers baked into every label. The nuance moved to a tooltip and a warning banner
+  that only appears when it's actually relevant (a live option picked with no model reachable),
+  rather than being printed unconditionally regardless of whether it applied.
+- **KPI row + tabs** (`st.tabs`: Business reports / Draft replies / Escalations / Aspect coverage)
+  replacing one long stacked-header page. A visitor gets an at-a-glance count (businesses, reviews,
+  drafts, escalations) before choosing what to read in more depth, instead of scrolling past
+  everything to find what they want.
+- **A mode banner** (`_render_header`) stating plainly, every time, whether what's on screen is a
+  live run or a replayed snapshot -- this project has made "don't misrepresent what's real vs.
+  simulated" a recurring theme (fake-review ground truth, the frozen snapshot's own honesty about
+  being real captured output), and the UI itself was the one place that hadn't been saying so
+  explicitly.
+- Draft/escalation cards now use `st.container(border=True)` instead of `st.divider()` between
+  entries -- a visual grouping cue for "these fields belong to the same review" that plain
+  dividers don't give.
+
+**What didn't change:** the routing logic, the LangGraph reject/regenerate loop, the frozen
+snapshot's content, and `scripts/run_pipeline.py` are all untouched -- this was UI-layer only.
+Verified live in the browser end-to-end on both paths after the change: instant demo (auto-runs,
+correct KPIs/tabs), and live demo (manual run, then a real reject-with-feedback still produces a
+genuinely different regenerated draft, same as before this pass).
+
 ## Streamlit Cloud replay mode: a real run's output, not a live one
 
 Status: resolved (2026-08-12) — code-side; the actual cloud deploy click is a manual step for the

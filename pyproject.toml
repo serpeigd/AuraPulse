@@ -20,7 +20,7 @@ dev = [
     "types-openpyxl>=3.1",
 ]
 ui = [
-    "streamlit>=1.38",
+    "streamlit>=1.42",  # app/streamlit_app.py uses the width= param (use_container_width is deprecated)
     "langgraph>=1.0",
 ]
 
