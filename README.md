@@ -385,9 +385,10 @@ nothing here can click that button for you:
 2. **New app** → pick this repository, branch `main`, main file path `app/streamlit_app.py`.
 3. Streamlit Cloud installs from [`requirements.txt`](requirements.txt) at the repo root
    automatically — nothing to configure.
-4. Deploy. Once it's live, select **Frozen demo snapshot** in the sidebar and click **Run
-   pipeline** — that's the only data source that works on the hosted link (the other two need a
-   local Ollama server the cloud container can't reach, and will error if picked there).
+4. Deploy. The app detects that no local Ollama server is reachable and auto-selects **🧊 Instant
+   demo** — it loads and runs on its own, no click needed. The other two data sources need a
+   local Ollama server the cloud container can't reach; picking one shows an explicit warning
+   before anyone clicks Run, so nobody visiting the link runs into a silently broken button.
 
 To refresh what the frozen snapshot shows (e.g. after a prompt change in `response_draft.py`):
 
