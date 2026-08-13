@@ -434,9 +434,11 @@ truth conventions, what was tried and reverted and why — is logged with its tr
   LangGraph's `MemorySaver` — zero-cost, no external store, but state is lost on a server restart
   mid-review (the human would have to click Run pipeline again). Fine for a local single-user demo;
   a real deployment would need a persistent checkpointer.
-- **The Streamlit app isn't deployed anywhere yet.** The code and a `requirements.txt` are ready
-  (see "Deploying" above), but connecting the repo on Streamlit Community Cloud is a manual
-  one-time step in the project owner's own account — not something committed to this repo.
+- **The public demo is frozen-replay only.** The deployed Streamlit Community Cloud app can only
+  serve `app/frozen_demo.json` — the cloud container can't reach a local Ollama server, so the two
+  live data sources (and the reject/regenerate loop that depends on them) are reachable only when
+  running the app locally. Refreshing what the public link shows means re-running
+  `scripts/freeze_demo_run.py` locally and committing the snapshot.
 - **A multi-criteria LLM-judge prompt doesn't judge criteria independently.** Removing one
   unreliable rubric question destabilized verdicts on unrelated, already-validated ones —
   see `docs/DESIGN.md`. The whole prompt has to be re-validated after any change, not just the
@@ -490,6 +492,26 @@ Not in this repo. Download the [Yelp Open Dataset](https://www.yelp.com/dataset)
 (requires accepting Yelp's terms) and drop it under `data/raw/`; `data/raw/` and
 `data/processed/` are both gitignored.
 
-## License
+## License and legal notice
 
-MIT — see [`LICENSE`](LICENSE).
+Copyright © 2026 Sergio Peigneux d'Egmont ([@serpeigd](https://github.com/serpeigd)).
+
+The source code in this repository is released under the [MIT License](LICENSE) — you may reuse,
+modify, and redistribute it, including commercially, provided the copyright notice and the licence
+text are kept. It is provided **as is, without warranty of any kind**; see the LICENSE file for the
+full disclaimer.
+
+That licence covers this repository's own code and documentation only. It does **not** extend to:
+
+- **The Yelp Open Dataset.** Not distributed here and not covered by this licence — it is
+  downloaded manually by each user under [Yelp's own Dataset Terms of Use](https://www.yelp.com/dataset),
+  which restrict how the data may be used and redistributed. `data/raw/` and `data/processed/` are
+  gitignored precisely so no Yelp content ever lands in this repository.
+- **The models and tools this project runs on.** [Ollama](https://ollama.com) and the model weights
+  it serves (`llama3.1:8b` by default) carry their own separate licences and acceptable-use terms.
+- **Any review text or business name** appearing in output produced from the Yelp dataset — that
+  content belongs to its original authors and to Yelp, not to this project.
+
+Nothing here is a legal opinion. If you plan to use this project on real customer reviews, review
+the applicable data-protection obligations (GDPR and equivalents) for the reviews you process
+yourself: AuraPulse is a portfolio project and makes no compliance claim.
