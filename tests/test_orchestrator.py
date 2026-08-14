@@ -41,8 +41,15 @@ def test_process_reviews_routes_the_fixed_dataset_correctly(mock_client_cls: Mag
 
     # fake-008 is the only severity_flag=True review in the fixed dataset -> ESCALATE.
     assert {e.review_id for e in batch.escalations} == {"fake-008"}
-    # Every other NEGATIVE review (002, 004, 005, 006, 007) -> DRAFT_RESPONSE.
-    assert {d.review_id for d in batch.drafts} == {"fake-002", "fake-004", "fake-005", "fake-006", "fake-007"}
+    # Every other NEGATIVE review (002, 004, 005, 006, 007, 009) -> DRAFT_RESPONSE.
+    assert {d.review_id for d in batch.drafts} == {
+        "fake-002",
+        "fake-004",
+        "fake-005",
+        "fake-006",
+        "fake-007",
+        "fake-009",
+    }
     # Aggregation covers ALL reviews, including escalated/drafted ones.
     assert sum(r.review_count for r in batch.business_reports) == len(analyses)
     assert batch.draft_failures == []
@@ -58,7 +65,14 @@ def test_process_reviews_records_draft_failures_without_dropping_the_batch(mock_
     analyses, texts = _dataset()
     batch = process_reviews(analyses, texts)
 
-    assert set(batch.draft_failures) == {"fake-002", "fake-004", "fake-005", "fake-006", "fake-007"}
+    assert set(batch.draft_failures) == {
+        "fake-002",
+        "fake-004",
+        "fake-005",
+        "fake-006",
+        "fake-007",
+        "fake-009",
+    }
     assert batch.drafts == []
     # Aggregation and escalation are unaffected by draft failures.
     assert {e.review_id for e in batch.escalations} == {"fake-008"}

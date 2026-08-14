@@ -45,7 +45,12 @@ Given a single customer review, extract:
   explicit complaint.
 - aspects: ONLY the restaurant aspects the review text actually
   discusses (food, service, price, cleanliness, wait_time, ambience,
-  or other), each with its own local sentiment. Do NOT include an
+  delivery, or other), each with its own local sentiment. Use
+  "delivery" specifically for an off-premise delivery order itself —
+  driver lateness, delivery time, wrong or missing delivered items,
+  packaging/temperature on arrival — never for how staff treated the
+  reviewer in person ("service") or how long they waited to be seated
+  or served in-restaurant ("wait_time"). Do NOT include an
   aspect the review doesn't mention, even to be thorough or complete —
   if the review only talks about two things, return exactly two
   aspect entries, not more. A single review can mention several
@@ -104,10 +109,11 @@ Respond with nothing but the structured JSON described by the schema.
 # (fake-004/005/006 came back NEUTRAL). Re-testing unmodified `main` the same
 # day, under the same load, reproduced the *same* failure pattern on the
 # *unchanged* prompt (fake-004/006/007 all NEUTRAL) -- generate_fixed_dataset()
-# has only 8 reviews, and this specific "mixed sentiment" case turns out to
-# already be a flaky, pre-existing failure mode, not something these two
-# pairs caused. Flagged as its own known gap in docs/DESIGN.md rather than
-# silently ignored, but not blocking this change.
+# has only a handful of reviews (grew from 8 to 9 on 2026-08-13, see
+# docs/DESIGN.md's Aspect.DELIVERY entry), and this specific "mixed sentiment"
+# case turns out to already be a flaky, pre-existing failure mode, not
+# something these two pairs caused. Flagged as its own known gap in
+# docs/DESIGN.md rather than silently ignored, but not blocking this change.
 _FEW_SHOT_EXAMPLES: list[tuple[str, ClassifiedAnalysis]] = [
     (
         (
@@ -161,6 +167,25 @@ _FEW_SHOT_EXAMPLES: list[tuple[str, ClassifiedAnalysis]] = [
             overall_sentiment=Sentiment.NEGATIVE,
             aspects=[AspectMention(aspect=Aspect.FOOD, sentiment=Sentiment.NEGATIVE)],
             severity_flag=True,
+        ),
+    ),
+    (
+        (
+            "Ordered delivery on a Friday night. The driver got lost and our food "
+            "showed up over an hour late, stone cold by the time it got here."
+        ),
+        ClassifiedAnalysis(
+            # Targets the confusion found reviewing other_detail ground truth
+            # (see docs/DESIGN.md's Aspect.DELIVERY entry): before this category
+            # existed, the model folded delivery-lateness complaints like this
+            # into "service" almost every time -- 16 of 17 reviews with a
+            # hand-labeled "other" (delivery, in 6 of those 17) had no "other"
+            # in the model's own prediction at all. This is deliberately NOT
+            # tagged wait_time (that's for waiting to be seated/served
+            # in-restaurant) or service (staff interaction) -- a late/cold
+            # delivery is neither.
+            overall_sentiment=Sentiment.NEGATIVE,
+            aspects=[AspectMention(aspect=Aspect.DELIVERY, sentiment=Sentiment.NEGATIVE)],
         ),
     ),
 ]

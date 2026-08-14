@@ -2,6 +2,76 @@
 
 This file records architectural decisions and their trade-offs as the project evolves. One entry per decision, most recent first.
 
+## Closing the Hito 0 `other` gap: adding `Aspect.DELIVERY`, and a side effect worth disclosing
+
+Status: resolved (2026-08-13/14).
+
+**Context — revisiting a gap flagged since Hito 0.** `other`'s precision/recall (33.3%/7.1%) had
+been the worst of any aspect category since the first 100-review eval, with `other` itself used in
+17% of hand-labeled reviews — per this project's own enum-decision criteria ("a high `other` rate
+signals the enum needs revisiting before it signals model error"), that combination was flagged as
+worth investigating but never acted on. Before touching anything, pulled every hand-labeled
+`other_detail` string (the free-text note a human labeler leaves when they mark `other`) for the 17
+reviews: **6 of 17 (35%) were delivery-related** ("delivery", "delivery portions"). The next-largest
+cluster was "order accuracy" / "menu availability" at 5/17 (29%), then price transparency (2/17),
+and four singletons (reservation, opening hours, online ordering, custom order) — one at a time,
+no repeat pattern.
+
+**Options considered, presented to the project owner before implementing:**
+- **(A) Add only `Aspect.DELIVERY` (chosen).** Covers the single largest, most coherent,
+  business-actionable cluster (35%) with the smallest possible schema change.
+- **(B) Add `delivery` + `order_accuracy`.** Would cover ~65% of `other` mentions, but doubles the
+  schema/prompt/few-shot surface and risks the two new categories being confused with each other.
+- **(C) Prompt-only fix, no schema change.** Zero schema/aggregation impact, but doesn't act on the
+  actual signal (delivery is a real, recurring operational aspect a restaurant owner would want
+  tracked) and contradicts this project's own stated criteria for when the enum should grow.
+
+Chose (A) — smallest change that acts on real, concentrated signal; the rest of `other` stays
+genuinely heterogeneous and doesn't clear the same bar.
+
+**Implementation.** `Aspect.DELIVERY` added to the enum (`src/aurapulse/schemas.py`). The system
+prompt (`src/aurapulse/classifier.py`) now lists `delivery` explicitly and defines it against the
+two categories it was most often being folded into: "never for how staff treated the reviewer in
+person (service) or how long they waited to be seated/served in-restaurant (wait_time)." One new
+few-shot pair demonstrates a late/cold delivery order tagged `delivery`, not `service`.
+`fake_reviews.py`'s fixed dataset grew from 8 to 9 reviews (`fake-009`, on `biz-beta`, a
+delivery-negative case) to keep `test_every_aspect_is_covered` (every `Aspect` value appears at
+least once) satisfied — verified against a live model directly: classified exactly as expected.
+
+**Ground truth had to be corrected before re-validating, not just the code.** The 100-review
+hand-labeled CSV predates `Aspect.DELIVERY` — its 6 delivery reviews were still filed under `other`.
+Re-running the eval against stale ground truth would have silently scored every correct `delivery`
+prediction as a false positive against an `other` label that no longer reflects the taxonomy. Wrote
+a one-off correction (backed up first): moved exactly those 6 rows' `other`/`other_detail` values
+into a new `delivery` column, verified row/column counts before re-running. `other` usage in the
+corrected ground truth dropped from 17% to 11%, as expected (17 − 6 = 11).
+
+**Result, 100-review re-eval (same hand-labeled sample, corrected ground truth):**
+- `delivery`: **83.3% recall** (5/6), 55.6% precision (tp=5, fp=4) — up from `other`'s 7.1% recall
+  when this same content had nowhere named to go. The core hypothesis held: giving a concentrated,
+  recurring theme its own category with a dedicated few-shot example works far better than relying
+  on the model to reach for a vague catch-all.
+- `other` (remaining 11 cases): **0% precision/recall (tp=0, fp=2, fn=11)** — worse in isolation
+  than the pre-fix 33.3%/7.1%. Aspect-set exact match (43/100) and aspect+sentiment exact match
+  (34/100) are both within this project's already-documented run-to-run noise band for this eval
+  (36-44%/24-34% across prior runs) — no overall regression.
+
+**The honest side effect, found by reading the actual diffs, not just the aggregate numbers:**
+`delivery` is now acting as a second, narrower catch-all for some genuinely-`other` content. Two
+concrete cases: a review hand-labeled `other` / "menu availability" got predicted as `delivery`
+instead; another hand-labeled `other` / "custom order" got the same treatment. The new category
+didn't just absorb the delivery cases it was built for — it partly absorbed *some* of what should
+have stayed `other`, on top of the model still not reaching for bare `other` proactively. Documented
+plainly rather than only reporting the flattering `delivery` number: a validated fix for a
+concentrated cluster can still leak into unrelated content nearby, the same lesson as the judge-
+instability finding in the draft-quality eval entry below, applied to a different part of the system.
+
+**Decision: ship it.** The concentrated cluster this change targeted is fixed with a large, real
+effect (7%→83% recall on the content that mattered); the side effect is smaller, disclosed, and
+affects an already-weak, low-support (11/100) category rather than introducing a new regression
+anywhere else. Revisit `other`'s remaining 11% the same way if a future hand-labeling pass surfaces
+another concentrated cluster worth its own category — not attempted this round.
+
 ## UI follow-up: block the failing click, show the pipeline actually working
 
 Status: resolved (2026-08-12), same day as the clarity pass below -- direct follow-up feedback
@@ -26,7 +96,7 @@ previous version's frozen-mode UI only showed the 5 reviews that got a draft -- 
 aggregated-only or escalated were invisible outside the aggregate business-report numbers, which
 undersold exactly the part of the project (`routing.decide_route`) this whole demo exists to show
 off. `scripts/freeze_demo_run.py` now captures a full per-review trace in the snapshot --
-sentiment, aspects, the actual route decision, and its outcome -- for all 8 reviews, not just the
+sentiment, aspects, the actual route decision, and its outcome -- for all reviews, not just the
 5 drafted ones. `_render_pipeline_walkthrough` renders each as a card: review text → sentiment/
 aspect badges → route decision with a plain-language reason → the actual outcome (draft text,
 escalation reason, or an explicit "aggregated only, no reply needed" for positive/neutral ones).
@@ -600,7 +670,7 @@ business's aggregate report. Fixed at the code level rather than the prompt — 
 reviews, and the classifier's `other` precision/recall (33.3%/7.1% after this change) is by far
 the worst of any category — per the enum decision's own escape-hatch logic (see "aspect field"
 decision below), that combination is the signal for revisiting whether the enum needs a new
-category. Not investigated yet.
+category. Investigated and resolved 2026-08-13/14 — see "Closing the Hito 0 `other` gap" above.
 
 ## Ground truth convention: mixed positive+negative aspects → overall NEGATIVE
 

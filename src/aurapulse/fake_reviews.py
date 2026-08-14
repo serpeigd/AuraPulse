@@ -39,6 +39,9 @@ _SENTENCE_TEMPLATES: dict[tuple[Aspect, Sentiment], str] = {
     (Aspect.AMBIENCE, Sentiment.POSITIVE): "The atmosphere was cozy and the music was just right.",
     (Aspect.AMBIENCE, Sentiment.NEUTRAL): "The ambience was unremarkable, a fairly generic dining room.",
     (Aspect.AMBIENCE, Sentiment.NEGATIVE): "It was way too loud and cramped to hold a conversation.",
+    (Aspect.DELIVERY, Sentiment.POSITIVE): "Delivery arrived quickly and everything was still hot when it got here.",
+    (Aspect.DELIVERY, Sentiment.NEUTRAL): "Delivery took about as long as we expected, nothing worth mentioning either way.",
+    (Aspect.DELIVERY, Sentiment.NEGATIVE): "Our delivery order showed up missing half the items we paid for.",
 }
 
 _OTHER_SENTENCE = "The parking lot was a nightmare and we almost gave up before even sitting down."
@@ -182,6 +185,15 @@ def generate_fixed_dataset() -> list[FakeReview]:
             {Aspect.CLEANLINESS: Sentiment.NEGATIVE, Aspect.SERVICE: Sentiment.NEGATIVE},
             overall_sentiment=Sentiment.NEGATIVE,
             severity_flag=True,
+        ),
+        # Aspect.DELIVERY coverage (added 2026-08-13 -- see docs/DESIGN.md): on
+        # biz-beta specifically, not a new business, so this doesn't touch the
+        # {"biz-alpha", "biz-beta", "biz-gamma"} set any existing test asserts.
+        make_fake_review(
+            "fake-009",
+            "biz-beta",
+            {Aspect.DELIVERY: Sentiment.NEGATIVE},
+            overall_sentiment=Sentiment.NEGATIVE,
         ),
     ]
 
