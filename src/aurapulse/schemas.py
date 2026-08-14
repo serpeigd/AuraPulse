@@ -25,8 +25,13 @@ class Sentiment(str, Enum):
 class Aspect(str, Enum):
     """Closed set of recurring business aspects tracked for aggregation.
 
-    See docs/DESIGN.md for the enum-vs-free-text trade-off. ``OTHER`` is
-    the escape hatch for content that doesn't fit; see
+    See docs/DESIGN.md for the enum-vs-free-text trade-off. ``DELIVERY``
+    was added 2026-08-13 after ``other_detail`` review showed it was 35%
+    (6/17) of all ``OTHER`` mentions in the 100-review hand-labeled
+    ground truth -- the single largest concentrated theme, and the only
+    one clearing the enum decision's own "recurring, coherent, worth its
+    own category" bar; everything else stayed scattered 1-2 cases each.
+    ``OTHER`` is the escape hatch for content that still doesn't fit; see
     ``AspectMention.other_detail``.
     """
 
@@ -36,6 +41,7 @@ class Aspect(str, Enum):
     CLEANLINESS = "cleanliness"
     WAIT_TIME = "wait_time"
     AMBIENCE = "ambience"
+    DELIVERY = "delivery"
     OTHER = "other"
 
 

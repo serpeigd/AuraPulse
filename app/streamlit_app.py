@@ -483,7 +483,7 @@ def _render_other_aspect_summary(summary: OtherAspectSummary) -> None:
     st.write(
         f"`other` used in **{summary.other_mentions}/{summary.total_mentions}** aspect mentions "
         f"(**{summary.other_share:.1%}**). A high share here would signal the closed aspect "
-        "enum (food/service/price/cleanliness/wait_time/ambience) needs a new category."
+        "enum (food/service/price/cleanliness/wait_time/ambience/delivery) needs a new category."
     )
     if summary.other_details:
         with st.expander("What fell through to `other`"):
