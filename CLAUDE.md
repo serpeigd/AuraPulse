@@ -6,6 +6,12 @@ Idioma
 
 * Commits, PRs, docstrings, comentarios de código, nombres de variables/funciones: inglés, formato convencional (`feat:`, `fix:`, `docs:`, `refactor:`).
 * Conversación conmigo en terminal: español, directo, sin relleno corporativo.
+- **Keep it short (2026-08-13, explicit request in chat).** Too much text, too much
+  explaining. Lead with the answer or the change; give reasoning only where it would
+  change a decision. Don't recap work already visible in the diff, don't restate the
+  question before answering it, and don't close with a summing-up line. Applies to
+  chat, commit messages and PR bodies. Reference docs (README, this file) can be
+  longer, but only where the length earns it.
 
 Contexto de negocio y portfolio
 Soy científico de datos (ML clásico, ETL, forecasting, PySpark, SQL) construyendo la parte de mi portfolio que demuestra agentes/orquestación/producción con LLMs. Este proyecto cubre específicamente routing condicional / cuándo un orquestador de grafos (LangGraph) se justifica frente a un pipeline secuencial.
