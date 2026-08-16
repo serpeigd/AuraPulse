@@ -33,12 +33,13 @@ This is a portfolio project, developed incrementally with documented design deci
   [`src/aurapulse/classifier.py`](src/aurapulse/classifier.py)
 - Yelp dataset loader + deterministic restaurant-review subset builder —
   [`src/aurapulse/data_loader.py`](src/aurapulse/data_loader.py)
-- Offline evals: 100% sentiment accuracy against the fake-review ground truth, 85% (51/60)
-  agreement against the free star-rating proxy on a stratified real-review sample
+- Offline evals: 55.6% (5/9) sentiment accuracy against the fake-review ground truth — a known,
+  pre-existing flakiness on this small fixture set, not a regression (see "Results" below), 85%
+  (51/60) agreement against the free star-rating proxy on a stratified real-review sample
 - Hand-labeling tooling for aspect ground truth (aspect has no free proxy, unlike sentiment) —
   [`scripts/build_labeling_sheet.py`](scripts/build_labeling_sheet.py)
 - Aspect-extraction validated against 100 hand-labeled reviews and tuned with few-shot examples +
-  output normalization: 44% aspect-set exact match, 34% aspect+sentiment exact match (up from a
+  output normalization: 43% aspect-set exact match, 34% aspect+sentiment exact match (up from a
   36%/24% baseline), 0 classification failures — see [`docs/DESIGN.md`](docs/DESIGN.md) for the
   full precision/recall breakdown and what didn't work along the way
 - Structured per-call classification tracing (latency, retries, outcome) —
